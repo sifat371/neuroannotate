@@ -11,5 +11,6 @@ vi.mock('../src/features/viewer/ViewerGrid', () => ({ ViewerGrid: () => <div>Vie
 test('renders the NeuroAnnotate workspace shell', async () => {
   render(<App />);
   expect(screen.getByRole('heading', { name: 'NeuroAnnotate' })).toBeInTheDocument();
-  expect(screen.getByText(/Not for clinical use/i)).toBeInTheDocument();
+  expect(screen.getByText('Research & portfolio software · Not for clinical use')).toBeInTheDocument();
+  expect(await screen.findByText('Create a case or seed the demo workspace.')).toBeInTheDocument();
 });
