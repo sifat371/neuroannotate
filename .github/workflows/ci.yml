@@ -34,6 +34,7 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package.json
+      - run: npm install -g npm@11 --no-audit --no-fund
       - run: npm install
       - run: npm run lint
       - run: npm test -- --run
