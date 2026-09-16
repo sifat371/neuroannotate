@@ -15,6 +15,9 @@ def test_valid_upload_duplicate_corrupt_and_readiness(client, tmp_path):
     case_id = create_case(client)["id"]
     dwi = make_nifti(tmp_path / "dwi.nii.gz")
     assert upload(client, case_id, "DWI", dwi).status_code == 201
+    downloaded = client.get(f"/api/cases/{case_id}/modalities/DWI/file.nii.gz")
+    assert downloaded.status_code == 200
+    assert downloaded.content.startswith(b"\x1f\x8b")
     assert upload(client, case_id, "DWI", dwi).status_code == 409
 
     bad = tmp_path / "bad.nii.gz"
