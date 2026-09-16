@@ -102,6 +102,7 @@ def get_revision(
 
 
 @router.get("/{case_id}/revisions/{revision_id}/file")
+@router.get("/{case_id}/revisions/{revision_id}/file.nii.gz")
 def revision_file(
     case_id: str,
     revision_id: str,
