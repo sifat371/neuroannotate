@@ -48,7 +48,12 @@ async function loadMaskData(url: string, key: string): Promise<ArrayLike<number>
   const imageIds = await createNiftiImageIdsAndCacheMetadata({ url });
   const volume = await volumeLoader.createAndCacheVolume(maskVolumeId, { imageIds });
   await volume.load();
-  const data = volume.voxelManager.getCompleteScalarDataArray();
+  const voxelManager = volume.voxelManager;
+  if (!voxelManager?.getCompleteScalarDataArray) {
+    cache.removeVolumeLoadObject(maskVolumeId);
+    throw new Error('Loaded segmentation volume does not expose scalar voxel data.');
+  }
+  const data = voxelManager.getCompleteScalarDataArray();
   cache.removeVolumeLoadObject(maskVolumeId);
   return data;
 }
@@ -127,8 +132,11 @@ export async function attachLabelmap(
     },
     getCurrentLabelmap() {
       const volume = cache.getVolume(volumeId);
-      if (!volume?.voxelManager) throw new Error('Editable segmentation is unavailable.');
-      return serializeLabelmap(volume.voxelManager.getCompleteScalarDataArray(), volume.dimensions);
+      const voxelManager = volume?.voxelManager;
+      if (!volume || !voxelManager?.getCompleteScalarDataArray) {
+        throw new Error('Editable segmentation is unavailable.');
+      }
+      return serializeLabelmap(voxelManager.getCompleteScalarDataArray(), volume.dimensions);
     },
     markSaved() { dirty = false; },
     async replaceFromNifti(url) {
