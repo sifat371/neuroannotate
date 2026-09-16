@@ -17,7 +17,7 @@ def test_demo_inference_is_deterministic_and_downloadable(client, tmp_path):
 
     first_run = client.post(f"/api/cases/{case_id}/segment")
     assert first_run.status_code == 201
-    first_file = client.get(f"/api/cases/{case_id}/segmentations/latest/file")
+    first_file = client.get(f"/api/cases/{case_id}/segmentations/latest/file.nii.gz")
     assert first_file.status_code == 200
     first_path = tmp_path / "m1.nii.gz"
     first_path.write_bytes(first_file.content)
@@ -26,7 +26,7 @@ def test_demo_inference_is_deterministic_and_downloadable(client, tmp_path):
 
     second_run = client.post(f"/api/cases/{case_id}/segment")
     assert second_run.status_code == 201
-    second_file = client.get(f"/api/cases/{case_id}/segmentations/latest/file")
+    second_file = client.get(f"/api/cases/{case_id}/segmentations/latest/file.nii.gz")
     second_path = tmp_path / "m2.nii.gz"
     second_path.write_bytes(second_file.content)
     second_array = load_volume(second_path).data
