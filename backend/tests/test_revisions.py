@@ -45,8 +45,9 @@ def test_revision_round_trip_is_immutable_and_exportable(client, tmp_path):
     assert second.json()["id"] != first.json()["id"]
 
     revision_file = client.get(
-        f"/api/cases/{case_id}/revisions/{first.json()['id']}/file"
+        f"/api/cases/{case_id}/revisions/{first.json()['id']}/file.nii.gz"
     )
+    assert revision_file.status_code == 200
     revision_path = tmp_path / "rev.nii.gz"
     revision_path.write_bytes(revision_file.content)
     array = load_volume(revision_path).data
