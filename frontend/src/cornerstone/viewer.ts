@@ -8,6 +8,7 @@ import {
 import * as cornerstoneTools from '@cornerstonejs/tools';
 import { createNiftiImageIdsAndCacheMetadata } from '@cornerstonejs/nifti-volume-loader';
 import { initializeCornerstone } from './init';
+import { waitForVolumeLoad } from './volumeLoading';
 
 const { PanTool, ZoomTool, WindowLevelTool, StackScrollTool, ToolGroupManager, Enums: ToolEnums } = cornerstoneTools;
 const { MouseBindings } = ToolEnums;
@@ -56,7 +57,7 @@ export async function createViewerSession({
   const sourceVolumeId = `cornerstoneStreamingImageVolume:source-${id}`;
   const imageIds = await createNiftiImageIdsAndCacheMetadata({ url: modalityUrl });
   const volume = await volumeLoader.createAndCacheVolume(sourceVolumeId, { imageIds });
-  await volume.load();
+  await waitForVolumeLoad(volume);
 
   const renderingEngine = new RenderingEngine(renderingEngineId);
   renderingEngine.setViewports([

@@ -4,6 +4,7 @@ import { createNiftiImageIdsAndCacheMetadata } from '@cornerstonejs/nifti-volume
 import type { ViewerSession } from './viewer';
 import { VIEWPORT_IDS } from './viewer';
 import { serializeLabelmap, type SerializedLabelmap } from './serializeLabelmap';
+import { waitForVolumeLoad } from './volumeLoading';
 
 const { BrushTool, ToolGroupManager, Enums: ToolEnums, segmentation } = cornerstoneTools;
 const { MouseBindings, SegmentationRepresentations } = ToolEnums;
@@ -47,15 +48,16 @@ async function loadMaskData(url: string, key: string): Promise<ArrayLike<number>
   const maskVolumeId = `cornerstoneStreamingImageVolume:mask-${key}-${crypto.randomUUID()}`;
   const imageIds = await createNiftiImageIdsAndCacheMetadata({ url });
   const volume = await volumeLoader.createAndCacheVolume(maskVolumeId, { imageIds });
-  await volume.load();
-  const voxelManager = volume.voxelManager;
-  if (!voxelManager?.getCompleteScalarDataArray) {
+  try {
+    await waitForVolumeLoad(volume);
+    const voxelManager = volume.voxelManager;
+    if (!voxelManager?.getCompleteScalarDataArray) {
+      throw new Error('Loaded segmentation volume does not expose scalar voxel data.');
+    }
+    return voxelManager.getCompleteScalarDataArray();
+  } finally {
     cache.removeVolumeLoadObject(maskVolumeId);
-    throw new Error('Loaded segmentation volume does not expose scalar voxel data.');
   }
-  const data = voxelManager.getCompleteScalarDataArray();
-  cache.removeVolumeLoadObject(maskVolumeId);
-  return data;
 }
 
 export async function attachLabelmap(
@@ -67,6 +69,7 @@ export async function attachLabelmap(
   const segmentationId = `seg-${sourceInferenceId}-${crypto.randomUUID()}`;
   const volumeId = `labelmap-${segmentationId}`;
   const derived = await volumeLoader.createAndCacheDerivedLabelmapVolume(session.sourceVolumeId, { volumeId });
+  void derived;
   const sourceData = await loadMaskData(niftiUrl, segmentationId);
   copyIntoLabelmap(volumeId, sourceData);
 
@@ -156,7 +159,6 @@ export async function attachLabelmap(
 }
 
 export function setOverlayVisible(seg: EditableSegmentation, visible: boolean) {
-  // The visibility API is viewport-scoped in Cornerstone 5.x.
   for (const viewportId of VIEWPORT_IDS) {
     segmentation.config.visibility.setSegmentationRepresentationVisibility(
       viewportId,

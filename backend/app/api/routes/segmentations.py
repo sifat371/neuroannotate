@@ -70,6 +70,7 @@ def latest(case_id: str, session: Session = Depends(get_session)):
 
 
 @router.get("/{case_id}/segmentations/latest/file")
+@router.get("/{case_id}/segmentations/latest/file.nii.gz")
 def latest_file(case_id: str, session: Session = Depends(get_session)):
     repo = CaseRepository(session)
     require_case(repo, case_id)

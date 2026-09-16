@@ -104,6 +104,7 @@ async def upload_modality(
 
 
 @router.get("/{case_id}/modalities/{modality}/file")
+@router.get("/{case_id}/modalities/{modality}/file.nii.gz")
 def modality_file(
     case_id: str,
     modality: str,
