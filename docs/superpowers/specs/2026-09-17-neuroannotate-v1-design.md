@@ -108,6 +108,8 @@ This additionally starts the DeepISLES inference service with NVIDIA/CUDA suppor
 
 The FastAPI application must not import or depend directly on DeepISLES, CUDA, or its training/inference environment. The real model is isolated behind an HTTP provider boundary.
 
+DeepISLES model weights are not committed to the NeuroAnnotate repository. The implementation must document a reproducible acquisition/cache mechanism consistent with the upstream model's distribution and licensing requirements.
+
 ## 4. Core Domain Model
 
 The filesystem stores NIfTI and JSON artifacts. SQLite stores metadata, relationships, lifecycle state, and provenance references. MRI image bytes are never stored as database blobs.
@@ -130,7 +132,7 @@ Case
 
 ### 4.1 Cases
 
-A case stores only human-readable metadata and identity.
+A case stores human-readable metadata and identity.
 
 Required fields:
 
@@ -160,7 +162,7 @@ Required fields:
 - datatype;
 - `created_at`.
 
-Each case has at most one active source artifact for each required modality in v1.0.
+A v1.0 case has exactly one immutable DWI, one immutable ADC, and one immutable FLAIR source artifact after creation completes. Source files are not replaced in place. If a researcher wants to work with a different source triad, they create a new case so existing inference and revision provenance cannot silently change underneath it.
 
 ### 4.3 Inference jobs
 
@@ -249,7 +251,6 @@ All imported source files are copied into a NeuroAnnotate-managed workspace and 
 ```text
 data/
 |-- neuroannotate.db
-`
 `-- cases/
     `-- <case-uuid>/
         |-- source/
@@ -274,22 +275,26 @@ data/
 
 Absolute filesystem paths must never appear in portable exports.
 
-### 5.1 Import transaction
+### 5.1 Atomic case import
 
-Import follows this order:
+The user-facing v1.0 case-creation flow treats the DWI/ADC/FLAIR triad as one transaction. The backend may stage each upload separately, but the case and its three source-artifact records become visible as a usable case only after all three files pass validation and are durably stored.
+
+Conceptually:
 
 ```text
-upload
-  -> temporary file
-  -> validate NIfTI
+receive case name + DWI + ADC + FLAIR
+  -> stage all three files
+  -> validate all three NIfTI volumes
   -> extract metadata
-  -> calculate SHA-256
-  -> copy into managed case workspace
-  -> atomic rename
-  -> create database artifact record
+  -> calculate SHA-256 for each
+  -> create managed case directory
+  -> atomically move staged files into source/
+  -> commit case + three source artifacts in one database transaction
 ```
 
-A validation failure must leave no partial artifact record.
+If any source fails validation or persistence, staged files are removed and no partially created user-visible case remains.
+
+Legacy per-modality upload routes may remain temporarily for migration/backward compatibility, but the v1.0 UI must use the transactional triad-import flow.
 
 ## 6. Canonical Annotation Space
 
@@ -384,10 +389,10 @@ POST /v1/segment
 
 `POST /v1/segment` receives DWI, ADC, and FLAIR NIfTI volumes using multipart transfer over the private Docker network and returns:
 
-- a DWI-space lesion segmentation NIfTI;
+- a lesion segmentation represented in the exact native DWI geometry required by NeuroAnnotate;
 - explicit inference metadata needed for provenance.
 
-The DeepISLES service owns its required preprocessing. NeuroAnnotate does not duplicate or replace model-specific registration/resampling preprocessing.
+The DeepISLES service owns its required preprocessing and any transformation needed to satisfy the DWI-space output contract. NeuroAnnotate's main application does not duplicate or replace model-specific registration/resampling preprocessing.
 
 ### 8.3 Why HTTP rather than shared paths
 
@@ -419,7 +424,7 @@ The UI polls the job status while the case is open. WebSockets are not required 
 
 ### 9.1 Concurrency
 
-Only one GPU inference job runs at a time in v1.0. Additional jobs remain queued.
+Only one GPU inference job runs at a time in v1.0. Additional GPU jobs remain queued.
 
 ### 9.2 Restart behavior
 
@@ -656,7 +661,7 @@ The right side is treated as one coherent workflow panel rather than unrelated c
 
 ### 14.1 New case flow
 
-The user provides:
+The user provides, in one case-creation flow:
 
 - case name;
 - DWI `.nii` / `.nii.gz`;
@@ -672,6 +677,8 @@ Each modality displays validation feedback such as:
 - geometry mismatch information when relevant.
 
 A native-geometry mismatch on FLAIR or ADC is informational, not an automatic error.
+
+The case becomes visible in the case list only when all three inputs have been validated and committed successfully.
 
 ### 14.2 Viewer states
 
@@ -771,7 +778,7 @@ write temp
 
 ### 15.1 Import failure
 
-No partial source artifact remains.
+No partial user-visible case or source artifact remains.
 
 ### 15.2 Inference failure
 
@@ -833,8 +840,7 @@ Frontend unit/component tests include:
 Using temporary SQLite and real generated NIfTI files:
 
 ```text
-create case
--> import triad
+create/import case triad
 -> create demo job
 -> complete segmentation
 -> save revisions
@@ -959,14 +965,21 @@ The GPU service is intended to be reachable only on the private application netw
 
 ## 22. API Direction
 
-Existing MVP routes may remain temporarily during migration, but the target v1.0 API should separate resources explicitly.
+Existing MVP routes may remain temporarily during migration, but the target v1.0 API separates resources explicitly.
 
-Representative endpoints:
+The user-facing case-creation contract is transactional: one request or one server-side staged workflow provides the case name plus all three modalities and commits them together. A representative endpoint is:
+
+```text
+POST /api/cases
+  multipart: name + DWI + ADC + FLAIR
+```
+
+Representative v1.0 endpoints:
 
 ```text
 GET    /api/cases
 POST   /api/cases
-POST   /api/cases/{id}/modalities/{DWI|ADC|FLAIR}
+GET    /api/cases/{id}
 
 POST   /api/cases/{id}/inference-jobs
 GET    /api/inference-jobs/{job_id}
@@ -987,7 +1000,9 @@ GET    /api/health
 GET    /api/inference/providers
 ```
 
-Exact endpoint names may be refined in the implementation plan, but the resource boundaries in this specification are authoritative.
+Current per-modality upload endpoints may remain temporarily as compatibility routes during migration but are not part of the normal v1.0 case-creation workflow.
+
+Exact endpoint names may be refined in the implementation plan, but the resource boundaries and atomic-case-import invariant in this specification are authoritative.
 
 ## 23. Compatibility and Migration Principles
 
@@ -1012,7 +1027,7 @@ NeuroAnnotate v1.0 is ready only when a new researcher can start from a clean ma
 ```text
 clone repository
 -> start demo mode
--> create/import a case
+-> create/import a case triad
 -> view DWI / ADC / FLAIR
 -> run segmentation
 -> edit mask
@@ -1040,7 +1055,7 @@ The release is not blocked on DICOM, cloud deployment, authentication, collabora
 The implementation plan should respect these dependencies:
 
 1. introduce migration infrastructure and v1.0 persistence model;
-2. harden managed artifacts, checksums, and validation;
+2. harden managed artifacts, checksums, atomic case import, and validation;
 3. implement persistent async job lifecycle with demo provider first;
 4. implement export/provenance on the deterministic path;
 5. update frontend workflow against those stable APIs;
@@ -1059,9 +1074,11 @@ The following choices are explicitly approved for v1.0:
 - DWI + ADC + FLAIR input;
 - NIfTI-only;
 - DWI native space is canonical for all lesion masks;
-- managed immutable source artifacts;
+- atomic import into managed immutable source artifacts;
+- source triads are fixed after case creation;
 - SHA-256 for scientifically meaningful artifacts;
 - DeepISLES behind a separate GPU inference service;
+- model weights not committed to the main repository;
 - Docker Compose GPU profile;
 - asynchronous persistent SQLite jobs;
 - one GPU job at a time;
@@ -1082,7 +1099,7 @@ The design is complete. The following are implementation details to resolve in t
 - exact SQLAlchemy model class names;
 - exact affine comparison tolerance and helper implementation;
 - exact polling interval and backoff;
-- exact worker primitive used for the single local background worker;
+- exact worker primitive used for the local background worker;
 - exact JSON schema validation library;
 - exact ZIP response implementation;
 - exact DeepISLES container/image version and model acquisition mechanism, subject to upstream distribution/licensing requirements;
