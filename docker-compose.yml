@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NEUROANNOTATE_DATA_DIR: /app/data
+      NEUROANNOTATE_DATABASE_URL: sqlite:////app/data/neuroannotate.db
+      NEUROANNOTATE_INFERENCE_PROVIDER: demo
+      NEUROANNOTATE_MAX_UPLOAD_MB: 512
+      NEUROANNOTATE_FRONTEND_ORIGIN: http://localhost:5173
+      NEUROANNOTATE_SAMPLE_DATA_DIR: /app/sample_data
+    volumes:
+      - ./data:/app/data
+      - ./sample_data:/app/sample_data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
