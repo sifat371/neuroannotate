@@ -39,7 +39,7 @@ export const api = {
     form.append('file', file);
     return request<CaseSummary>(`/api/cases/${caseId}/modalities/${modality}`, { method: 'POST', body: form });
   },
-  getModalityFileUrl: (caseId: string, modality: Modality) => `${API_BASE}/api/cases/${caseId}/modalities/${modality}/file`,
+  getModalityFileUrl: (caseId: string, modality: Modality) => `${API_BASE}/api/cases/${caseId}/modalities/${modality}/file.nii.gz`,
   runSegmentation: (caseId: string) => request<InferenceRun>(`/api/cases/${caseId}/segment`, { method: 'POST' }),
   getLatestSegmentation: async (caseId: string): Promise<InferenceRun | null> => {
     try {
@@ -49,7 +49,7 @@ export const api = {
       throw error;
     }
   },
-  getLatestSegmentationFileUrl: (caseId: string) => `${API_BASE}/api/cases/${caseId}/segmentations/latest/file`,
+  getLatestSegmentationFileUrl: (caseId: string) => `${API_BASE}/api/cases/${caseId}/segmentations/latest/file.nii.gz`,
   listRevisions: (caseId: string) => request<Revision[]>(`/api/cases/${caseId}/revisions`),
   saveRevision: (caseId: string, sourceInferenceId: string, data: SerializedLabelmap, note?: string) => {
     const form = new FormData();
@@ -60,6 +60,6 @@ export const api = {
     if (note?.trim()) form.append('note', note.trim());
     return request<Revision>(`/api/cases/${caseId}/revisions`, { method: 'POST', body: form });
   },
-  getRevisionFileUrl: (caseId: string, revisionId: string) => `${API_BASE}/api/cases/${caseId}/revisions/${revisionId}/file`,
+  getRevisionFileUrl: (caseId: string, revisionId: string) => `${API_BASE}/api/cases/${caseId}/revisions/${revisionId}/file.nii.gz`,
   getExportUrl: (caseId: string, revisionId: string) => `${API_BASE}/api/cases/${caseId}/export?revision_id=${encodeURIComponent(revisionId)}`,
 };
