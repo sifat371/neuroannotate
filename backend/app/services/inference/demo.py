@@ -4,7 +4,12 @@ from time import perf_counter
 import numpy as np
 from scipy import ndimage
 
-from app.services.inference.base import CaseInput, ProviderInfo, ProviderResult
+from app.services.inference.base import (
+    CaseInput,
+    ProviderInfo,
+    ProviderOutputPersistenceError,
+    ProviderResult,
+)
 from app.services.nifti_codec import load_volume, save_volume
 
 
@@ -31,7 +36,12 @@ class DemoSegmentationProvider:
                 keep[0] = False
                 mask = keep[labels]
             mask = mask.astype(np.uint8)
-        save_volume(output_path, mask, dwi_img.affine, dtype=np.uint8)
+        try:
+            save_volume(output_path, mask, dwi_img.affine, dtype=np.uint8)
+        except OSError as exc:
+            raise ProviderOutputPersistenceError(
+                "Could not write demo segmentation output"
+            ) from exc
         info = self.info()
         return ProviderResult(
             mask_path=output_path,

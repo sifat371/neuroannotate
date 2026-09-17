@@ -29,6 +29,10 @@ class ProviderResult:
     runtime: dict[str, object]
 
 
+class ProviderOutputPersistenceError(Exception):
+    """Raised when a provider cannot write its output artifact."""
+
+
 class SegmentationProvider(Protocol):
     name: str
     def info(self) -> ProviderInfo: ...

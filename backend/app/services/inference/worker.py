@@ -17,7 +17,7 @@ from app.db.models import InferenceJob, SegmentationArtifact, SourceArtifact
 from app.db.session import new_session
 from app.services.artifacts import validate_source_nifti
 from app.services.checksums import sha256_file
-from app.services.inference.base import CaseInput
+from app.services.inference.base import CaseInput, ProviderOutputPersistenceError
 from app.services.inference.jobs import transition_job
 from app.services.inference.registry import get_provider
 from app.services.nifti import assert_compatible_geometry, inspect_nifti
@@ -121,9 +121,14 @@ class InferenceWorker:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with TemporaryDirectory(dir=destination.parent) as temporary:
                     category = "provider_runtime_failure"
-                    result = provider.segment(
-                        CaseInput(job.case_id, paths), Path(temporary) / "segmentation.nii.gz"
-                    )
+                    try:
+                        result = provider.segment(
+                            CaseInput(job.case_id, paths),
+                            Path(temporary) / "segmentation.nii.gz",
+                        )
+                    except ProviderOutputPersistenceError:
+                        category = "artifact_persistence_failure"
+                        raise
                     provenance.update(
                         configuration=result.configuration, runtime=result.runtime
                     )

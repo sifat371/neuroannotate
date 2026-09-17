@@ -201,6 +201,34 @@ def test_run_once_processes_only_oldest_queued_job(client, tmp_path: Path) -> No
     assert client.get(f"/api/inference-jobs/{second['id']}").json()["status"] == "queued"
 
 
+def test_demo_output_write_failure_is_artifact_persistence_failure(
+    client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy import select
+
+    from app.db.models import SegmentationArtifact
+    from app.services.inference.worker import InferenceWorker
+
+    case_id = import_case(client, tmp_path)["id"]
+    queued = client.post(
+        f"/api/cases/{case_id}/inference-jobs", json={"provider": "demo"}
+    ).json()
+
+    def fail_output_write(*_args, **_kwargs) -> None:
+        raise OSError("disk full while writing demo mask")
+
+    monkeypatch.setattr("app.services.inference.demo.save_volume", fail_output_write)
+
+    assert InferenceWorker().run_once() is True
+    failed = client.get(f"/api/inference-jobs/{queued['id']}").json()
+    assert failed["status"] == "failed"
+    assert failed["failure_category"] == "artifact_persistence_failure"
+    assert failed["segmentation_id"] is None
+    with new_session() as session:
+        assert session.scalar(select(SegmentationArtifact)) is None
+    assert not list((settings.data_dir / "inference").rglob("*.nii.gz"))
+
+
 @pytest.mark.parametrize(
     ("failure", "category"),
     [
