@@ -229,9 +229,9 @@ def _copy_legacy_rows() -> None:
             ],
         )
 
-    geometry_by_case: dict[str, Any] = {}
-    for row in modality_rows:
-        geometry_by_case.setdefault(row["case_id"], row)
+    geometry_by_case = {
+        row["case_id"]: row for row in modality_rows if row["modality"] == "DWI"
+    }
     completed_rows = [row for row in inference_rows if row["status"] == "completed"]
     if completed_rows:
         connection.execute(
@@ -299,6 +299,7 @@ def upgrade() -> None:
     with op.batch_alter_table("cases") as batch_op:
         batch_op.alter_column("updated_at", nullable=False)
 
+    op.drop_index("ix_annotation_revisions_case_id", table_name="annotation_revisions")
     op.rename_table("annotation_revisions", "legacy_annotation_revisions")
     _create_source_artifacts()
     _create_inference_jobs()

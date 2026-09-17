@@ -18,6 +18,7 @@ class Volume:
     data: np.ndarray
     affine: np.ndarray
     spacing: tuple[float, float, float]
+    datatype: str
 
 
 def _opener(path: Path, mode: str):
@@ -36,6 +37,7 @@ def load_volume(path: Path) -> Volume:
             np.asarray(image.get_fdata(), dtype=np.float32),
             np.asarray(image.affine, dtype=float),
             tuple(float(v) for v in image.header.get_zooms()[:3]),
+            str(np.dtype(image.header.get_data_dtype())),
         )
 
     with _opener(path, "rb") as fh:
@@ -100,6 +102,7 @@ def load_volume(path: Path) -> Volume:
         arr,
         affine,
         (float(pixdim[1]), float(pixdim[2]), float(pixdim[3])),
+        str(np.dtype(dtype_map[datatype])),
     )
 
 

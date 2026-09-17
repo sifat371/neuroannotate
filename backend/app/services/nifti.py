@@ -26,7 +26,7 @@ def inspect_nifti(path: Path) -> NiftiMetadata:
             tuple(int(v) for v in image.data.shape),
             image.spacing,
             affine,
-            str(image.data.dtype),
+            image.datatype,
         )
     except ApiError:
         raise

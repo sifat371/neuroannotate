@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -74,7 +75,9 @@ def test_mvp_database_migrates_without_losing_case(
             assert migrated_job.provenance_json == '{"algorithm":"legacy-demo"}'
             migrated_segmentation = connection.execute(
                 text(
-                    "select id, inference_job_id, relative_path "
+                    "select id, inference_job_id, relative_path, "
+                    "shape_x, shape_y, shape_z, spacing_x, spacing_y, spacing_z, "
+                    "affine_json "
                     "from segmentation_artifacts"
                 )
             ).one()
@@ -84,6 +87,22 @@ def test_mvp_database_migrates_without_losing_case(
                 migrated_segmentation.relative_path
                 == "case-1/inference/segmentation.nii.gz"
             )
+            assert (
+                migrated_segmentation.shape_x,
+                migrated_segmentation.shape_y,
+                migrated_segmentation.shape_z,
+            ) == (10, 11, 12)
+            assert (
+                migrated_segmentation.spacing_x,
+                migrated_segmentation.spacing_y,
+                migrated_segmentation.spacing_z,
+            ) == (1.0, 1.1, 1.2)
+            assert json.loads(migrated_segmentation.affine_json) == [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ]
             migrated_revision = connection.execute(
                 text(
                     "select id, source_segmentation_id, relative_path "
