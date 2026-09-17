@@ -58,7 +58,7 @@ def assert_compatible_geometry(
     same_affine = np.allclose(
         reference.affine,
         candidate.affine,
-        atol=1e-4,
+        atol=1e-5,
         rtol=0,
     )
     if not (same_shape and same_affine):

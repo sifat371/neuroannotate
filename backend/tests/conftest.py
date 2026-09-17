@@ -13,5 +13,5 @@ def client(tmp_path: Path):
     settings.data_dir = tmp_path / "data"
     settings.sample_data_dir = tmp_path / "sample_data"
     configure_database(f"sqlite:///{tmp_path / 'test.db'}")
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(start_worker=False)) as test_client:
         yield test_client

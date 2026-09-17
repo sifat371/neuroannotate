@@ -21,12 +21,13 @@ router = APIRouter(prefix="/api/cases", tags=["segmentations"])
 
 
 def _read(run: InferenceJob) -> dict:
+    provenance = json.loads(run.provenance_json or "{}")
     return {
         "id": run.id,
         "case_id": run.case_id,
         "provider": run.provider,
         "status": run.status,
-        "metadata": json.loads(run.provenance_json or "{}"),
+        "metadata": provenance.get("configuration", provenance),
         "created_at": run.created_at,
     }
 
@@ -55,18 +56,33 @@ def segment(case_id: str, session: Session = Depends(get_session)):
         sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
     job_id = new_uuid()
     completed_at = datetime.now(UTC)
+    provenance = {
+        "sources": [
+            {
+                "id": artifact.id,
+                "modality": artifact.modality,
+                "sha256": artifact.sha256,
+            }
+            for artifact in sorted(
+                case.source_artifacts, key=lambda artifact: artifact.modality
+            )
+        ],
+        "configuration": result.configuration,
+        "runtime": result.runtime,
+        "result": {"sha256": sha256},
+    }
     run = repo.add_inference(
         InferenceJob(
             id=job_id,
             case_id=case_id,
             provider=result.provider,
-            model_name=result.provider,
-            model_version="1",
-            service_version="0.1.0",
+            model_name=result.model_name,
+            model_version=result.model_version,
+            service_version=result.service_version,
             status="completed",
             started_at=completed_at,
             completed_at=completed_at,
-            provenance_json=json.dumps(result.metadata),
+            provenance_json=json.dumps(provenance, allow_nan=False),
         ),
         SegmentationArtifact(
             id=job_id,

@@ -1,5 +1,10 @@
-import numpy as np
+import json
 
+import numpy as np
+from sqlalchemy import select
+
+from app.db.models import InferenceJob
+from app.db.session import new_session
 from app.services.nifti_codec import load_volume
 from tests.helpers import create_case, upload_case_modalities
 
@@ -35,3 +40,19 @@ def test_demo_inference_is_deterministic_and_downloadable(client, tmp_path):
     assert first_volume.data.shape == (12, 12, 12)
     assert set(np.unique(first_array)).issubset({0, 1})
     assert second_run.json()["provider"] == "demo"
+
+    with new_session() as session:
+        latest = session.scalar(
+            select(InferenceJob)
+            .where(InferenceJob.case_id == case_id)
+            .order_by(InferenceJob.created_at.desc())
+        )
+        assert latest is not None
+        assert latest.model_name == "deterministic_demo_threshold"
+        assert latest.model_version == "2"
+        assert latest.service_version == "0.1.0"
+        provenance = json.loads(latest.provenance_json)
+        assert provenance["configuration"]["input_modalities"] == ["DWI"]
+        assert provenance["runtime"]["device"] == "cpu"
+        assert provenance["result"]["sha256"] == latest.segmentation.sha256
+        assert len(provenance["sources"]) == 3
