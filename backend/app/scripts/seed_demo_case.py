@@ -43,7 +43,7 @@ def seed_demo_case() -> str:
                     spacing_x=meta.spacing[0],
                     spacing_y=meta.spacing[1],
                     spacing_z=meta.spacing[2],
-                    affine_json=json.dumps(meta.affine.tolist()),
+                    affine_json=json.dumps(meta.affine),
                     datatype=meta.datatype,
                 )
             )

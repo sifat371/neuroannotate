@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,3 +15,22 @@ class CaseRead(BaseModel):
     modalities: list[str]
     ready_for_inference: bool
     model_config = ConfigDict(from_attributes=True)
+
+
+class SourceArtifactRead(BaseModel):
+    id: str
+    modality: Literal["DWI", "ADC", "FLAIR"]
+    original_filename: str
+    relative_path: str
+    sha256: str
+    file_size: int
+    shape: tuple[int, int, int]
+    spacing: tuple[float, float, float]
+    affine: list[list[float]]
+    datatype: str
+    created_at: datetime
+
+
+class CaseDetail(CaseRead):
+    annotation_space: Literal["DWI"] = "DWI"
+    sources: list[SourceArtifactRead]

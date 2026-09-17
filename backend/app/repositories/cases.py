@@ -13,7 +13,7 @@ from app.db.models import (
 
 
 class CaseRepository:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session) -> None:
         self.session = session
 
     def create(self, name: str) -> Case:
@@ -21,6 +21,17 @@ class CaseRepository:
         self.session.add(case)
         self.session.commit()
         self.session.refresh(case)
+        return case
+
+    def add_imported_case(
+        self,
+        case: Case,
+        artifacts: list[SourceArtifact],
+    ) -> Case:
+        """Persist a case and its source triad in one transaction."""
+        case.source_artifacts.extend(artifacts)
+        self.session.add(case)
+        self.session.commit()
         return case
 
     def list(self) -> list[Case]:

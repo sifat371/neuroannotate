@@ -2,6 +2,9 @@ from pathlib import Path
 
 import numpy as np
 
+from app.db.session import new_session
+from app.repositories.cases import CaseRepository
+from app.services.cases import case_to_dict
 from app.services.nifti_codec import save_volume
 
 
@@ -18,7 +21,22 @@ def make_nifti(
 
 
 def create_case(client, name="Case"):
-    response = client.post("/api/cases", json={"name": name})
+    del client  # The client fixture initializes this test's isolated database.
+    with new_session() as session:
+        return case_to_dict(CaseRepository(session).create(name))
+
+
+def import_case(client, tmp_path: Path, name: str = "Case"):
+    modalities = ("dwi", "adc", "flair")
+    paths = [make_nifti(tmp_path / f"{modality}.nii.gz") for modality in modalities]
+    response = client.post(
+        "/api/cases",
+        data={"name": name},
+        files={
+            modality: (path.name, path.read_bytes(), "application/gzip")
+            for modality, path in zip(modalities, paths, strict=True)
+        },
+    )
     assert response.status_code == 201
     return response.json()
 
