@@ -1,8 +1,9 @@
+import hashlib
 import json
 from pathlib import Path
 
 from app.core.config import settings
-from app.db.models import ModalityArtifact
+from app.db.models import SourceArtifact
 from app.db.session import init_db, new_session
 from app.repositories.cases import CaseRepository
 from app.scripts.generate_demo_data import generate_demo_case
@@ -26,11 +27,16 @@ def seed_demo_case() -> str:
             dst = storage.modality_path(case.id, modality, True)
             dst.write_bytes(src.read_bytes())
             meta = inspect_nifti(dst)
+            with dst.open("rb") as file_handle:
+                sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
             repo.add_modality(
-                ModalityArtifact(
+                SourceArtifact(
                     case_id=case.id,
                     modality=modality,
+                    original_filename=src.name,
                     relative_path=storage.relative(dst),
+                    sha256=sha256,
+                    file_size=dst.stat().st_size,
                     shape_x=meta.shape[0],
                     shape_y=meta.shape[1],
                     shape_z=meta.shape[2],
@@ -38,6 +44,7 @@ def seed_demo_case() -> str:
                     spacing_y=meta.spacing[1],
                     spacing_z=meta.spacing[2],
                     affine_json=json.dumps(meta.affine.tolist()),
+                    datatype=meta.datatype,
                 )
             )
         return case.id

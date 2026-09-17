@@ -1,5 +1,10 @@
-import numpy as np
+import hashlib
 
+import numpy as np
+from sqlalchemy import select
+
+from app.db.models import SourceArtifact
+from app.db.session import new_session
 from tests.helpers import create_case, make_nifti
 
 
@@ -45,3 +50,20 @@ def test_geometry_mismatch_is_rejected(client, tmp_path):
     response = upload(client, case_id, "ADC", adc)
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "incompatible_geometry"
+
+
+def test_upload_records_source_file_integrity_metadata(client, tmp_path):
+    case_id = create_case(client)["id"]
+    dwi = make_nifti(tmp_path / "original-dwi.nii.gz")
+
+    assert upload(client, case_id, "DWI", dwi).status_code == 201
+
+    with new_session() as session:
+        artifact = session.scalar(
+            select(SourceArtifact).where(SourceArtifact.case_id == case_id)
+        )
+        assert artifact is not None
+        assert artifact.original_filename == "original-dwi.nii.gz"
+        assert artifact.file_size == dwi.stat().st_size
+        assert artifact.sha256 == hashlib.sha256(dwi.read_bytes()).hexdigest()
+        assert artifact.datatype == "float32"

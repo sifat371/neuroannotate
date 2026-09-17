@@ -7,12 +7,12 @@ from fastapi.responses import JSONResponse
 from app.api.routes import cases, exports, health, modalities, revisions, segmentations
 from app.core.config import settings
 from app.core.errors import ApiError
-from app.db.session import init_db
+from app.db.session import get_engine, run_migrations
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_db()
+    run_migrations(str(get_engine().url))
     yield
 
 

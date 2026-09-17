@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
@@ -20,7 +21,7 @@ def _read(revision: AnnotationRevision) -> dict:
     return {
         "id": revision.id,
         "case_id": revision.case_id,
-        "source_inference_id": revision.source_inference_id,
+        "source_inference_id": revision.source_segmentation_id,
         "note": revision.note,
         "created_at": revision.created_at,
     }
@@ -46,7 +47,7 @@ async def create_revision(
     require_case(repo, case_id)
 
     source = repo.get_inference(source_inference_id)
-    if not source or source.case_id != case_id:
+    if not source or source.case_id != case_id or source.segmentation is None:
         raise ApiError(
             422,
             "invalid_source_inference",
@@ -76,11 +77,14 @@ async def create_revision(
         storage.resolve(dwi.relative_path),
         out,
     )
+    with out.open("rb") as file_handle:
+        sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
     revision = repo.add_revision(
         AnnotationRevision(
             case_id=case_id,
-            source_inference_id=source_inference_id,
+            source_segmentation_id=source.segmentation.id,
             relative_path=storage.relative(out),
+            sha256=sha256,
             note=note,
         )
     )

@@ -3,7 +3,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import AnnotationRevision, Case, InferenceRun, ModalityArtifact
+from app.db.models import (
+    AnnotationRevision,
+    Case,
+    InferenceJob,
+    SegmentationArtifact,
+    SourceArtifact,
+)
 
 
 class CaseRepository:
@@ -18,44 +24,62 @@ class CaseRepository:
         return case
 
     def list(self) -> list[Case]:
-        stmt = select(Case).options(selectinload(Case.modalities)).order_by(Case.created_at)
+        stmt = (
+            select(Case)
+            .options(selectinload(Case.source_artifacts))
+            .order_by(Case.created_at)
+        )
         return list(self.session.scalars(stmt).all())
 
     def get(self, case_id: str) -> Case | None:
-        stmt = select(Case).where(Case.id == case_id).options(selectinload(Case.modalities))
+        stmt = (
+            select(Case)
+            .where(Case.id == case_id)
+            .options(selectinload(Case.source_artifacts))
+        )
         return self.session.scalar(stmt)
 
     def get_by_name(self, name: str) -> Case | None:
         return self.session.scalar(select(Case).where(Case.name == name))
 
-    def get_modality(self, case_id: str, modality: str) -> ModalityArtifact | None:
-        stmt = select(ModalityArtifact).where(
-            ModalityArtifact.case_id == case_id, ModalityArtifact.modality == modality
+    def get_modality(self, case_id: str, modality: str) -> SourceArtifact | None:
+        stmt = select(SourceArtifact).where(
+            SourceArtifact.case_id == case_id, SourceArtifact.modality == modality
         )
         return self.session.scalar(stmt)
 
-    def add_modality(self, artifact: ModalityArtifact) -> ModalityArtifact:
+    def add_modality(self, artifact: SourceArtifact) -> SourceArtifact:
         self.session.add(artifact)
         self.session.commit()
         self.session.refresh(artifact)
         return artifact
 
-    def add_inference(self, run: InferenceRun) -> InferenceRun:
-        self.session.add(run)
+    def add_inference(
+        self,
+        job: InferenceJob,
+        segmentation: SegmentationArtifact,
+    ) -> InferenceJob:
+        self.session.add_all((job, segmentation))
         self.session.commit()
-        self.session.refresh(run)
-        return run
+        self.session.refresh(job)
+        return job
 
-    def latest_inference(self, case_id: str) -> InferenceRun | None:
+    def latest_inference(self, case_id: str) -> InferenceJob | None:
         stmt = (
-            select(InferenceRun)
-            .where(InferenceRun.case_id == case_id)
-            .order_by(InferenceRun.created_at.desc())
+            select(InferenceJob)
+            .where(InferenceJob.case_id == case_id)
+            .options(selectinload(InferenceJob.segmentation))
+            .order_by(InferenceJob.created_at.desc())
         )
         return self.session.scalar(stmt)
 
-    def get_inference(self, run_id: str) -> InferenceRun | None:
-        return self.session.get(InferenceRun, run_id)
+    def get_inference(self, run_id: str) -> InferenceJob | None:
+        stmt = (
+            select(InferenceJob)
+            .where(InferenceJob.id == run_id)
+            .options(selectinload(InferenceJob.segmentation))
+        )
+        return self.session.scalar(stmt)
 
     def add_revision(self, revision: AnnotationRevision) -> AnnotationRevision:
         self.session.add(revision)

@@ -11,6 +11,7 @@ class NiftiMetadata:
     shape: tuple[int, int, int]
     spacing: tuple[float, float, float]
     affine: np.ndarray
+    datatype: str
 
 
 def inspect_nifti(path: Path) -> NiftiMetadata:
@@ -25,6 +26,7 @@ def inspect_nifti(path: Path) -> NiftiMetadata:
             tuple(int(v) for v in image.data.shape),
             image.spacing,
             affine,
+            str(image.data.dtype),
         )
     except ApiError:
         raise

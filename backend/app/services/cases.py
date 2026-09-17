@@ -9,7 +9,7 @@ def is_ready_for_inference(modalities: set[str]) -> bool:
 
 
 def case_to_dict(case: Case) -> dict:
-    modalities = sorted(m.modality for m in case.modalities)
+    modalities = sorted(artifact.modality for artifact in case.source_artifacts)
     return {
         "id": case.id,
         "name": case.name,
