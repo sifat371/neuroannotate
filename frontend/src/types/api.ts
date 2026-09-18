@@ -78,13 +78,19 @@ export interface ExportArtifact {
 }
 
 export interface SystemHealth {
-  status: 'ok';
+  status: 'ok' | 'unavailable';
   service: 'neuroannotate-api';
   storage?: 'ok' | 'unavailable';
   database?: 'ok' | 'unavailable';
   inference?: {
-    mode: 'demo' | 'gpu';
+    mode: 'demo' | 'gpu' | 'unknown';
     deepisles: 'ready' | 'not_enabled' | 'unavailable';
     ready: boolean;
+    service?: string;
+    service_version?: string;
+    model_name?: string;
+    model_version?: string;
+    device?: string;
+    cuda_available?: boolean;
   };
 }

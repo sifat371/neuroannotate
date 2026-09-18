@@ -19,6 +19,9 @@ WORKDIR /service
 COPY requirements-service.txt /service/
 RUN python3.8 -m pip install --no-cache-dir -r requirements-service.txt
 COPY app /service/app
+COPY scripts/fetch_weights.sh /service/scripts/fetch_weights.sh
+RUN chmod +x /service/scripts/fetch_weights.sh \
+    && ln -s /models/weights /opt/deepisles/weights
 ENV PYTHONPATH=/service:/opt/deepisles
 EXPOSE 8080
-CMD ["python3.8", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/bin/bash", "-c", "/service/scripts/fetch_weights.sh && exec python3.8 -m uvicorn app.main:app --host 0.0.0.0 --port 8080"]

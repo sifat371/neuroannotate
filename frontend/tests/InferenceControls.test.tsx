@@ -60,4 +60,37 @@ describe('InferenceControls', () => {
     expect(api.createInferenceJob).toHaveBeenCalledWith('c1', 'demo');
     expect(callback).toHaveBeenCalledWith(job('queued'));
   });
+  test('submits the ready GPU provider through FastAPI and identifies its service', async () => {
+    vi.mocked(api.createInferenceJob).mockResolvedValue(job('queued'));
+    render(<InferenceControls
+      selectedCase={ready}
+      job={null}
+      onJobChange={() => undefined}
+      health={{
+        status: 'ok', service: 'neuroannotate-api', storage: 'ok', database: 'ok',
+        inference: {
+          mode: 'gpu', deepisles: 'ready', ready: true,
+          model_name: 'DeepISLES', model_version: '7658b608fc0d890cf14448ff3e58c47ad5c761e7',
+          device: 'cuda:0', cuda_available: true,
+        },
+      }}
+    />);
+    expect(screen.getByText(/DeepISLES.*cuda:0/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Run AI Segmentation' }));
+    expect(api.createInferenceJob).toHaveBeenCalledWith('c1', 'deepisles');
+  });
+
+  test('disables inference when the explicitly selected GPU provider is unavailable', () => {
+    render(<InferenceControls
+      selectedCase={ready}
+      job={null}
+      onJobChange={() => undefined}
+      health={{
+        status: 'ok', service: 'neuroannotate-api', storage: 'ok', database: 'ok',
+        inference: { mode: 'gpu', deepisles: 'unavailable', ready: false },
+      }}
+    />);
+    expect(screen.getByRole('button', { name: 'Run AI Segmentation' })).toBeDisabled();
+    expect(screen.getByText(/GPU provider is unavailable/i)).toBeInTheDocument();
+  });
 });

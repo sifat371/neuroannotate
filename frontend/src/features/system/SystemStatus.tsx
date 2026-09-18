@@ -20,6 +20,8 @@ export function SystemStatus({ health }: Props) {
         <div><dt>Inference mode</dt><dd>{mode}</dd></div>
         <div><dt>GPU service</dt><dd>{label(gpu)}</dd></div>
         <div><dt>DeepISLES readiness</dt><dd>{readiness}</dd></div>
+        {health?.inference?.model_name ? <div><dt>DeepISLES model</dt><dd>{health.inference.model_name}</dd></div> : null}
+        {health?.inference?.device ? <div><dt>GPU device</dt><dd>{health.inference.device}</dd></div> : null}
       </dl>
       {mode === 'demo' && gpu === 'not_enabled' ? <p className="muted">GPU service not enabled is expected while demo mode is active.</p> : null}
     </section>

@@ -5,12 +5,13 @@ services:
     environment:
       NEUROANNOTATE_DATA_DIR: /app/data
       NEUROANNOTATE_DATABASE_URL: sqlite:////app/data/neuroannotate.db
-      NEUROANNOTATE_INFERENCE_PROVIDER: demo
+      NEUROANNOTATE_INFERENCE_PROVIDER: ${NEUROANNOTATE_INFERENCE_PROVIDER:-demo}
+      NEUROANNOTATE_DEEPISLES_URL: ${NEUROANNOTATE_DEEPISLES_URL:-http://deepisles:8080}
       NEUROANNOTATE_MAX_UPLOAD_MB: 512
       NEUROANNOTATE_FRONTEND_ORIGIN: http://localhost:5173
       NEUROANNOTATE_SAMPLE_DATA_DIR: /app/sample_data
     volumes:
-      - ./data:/app/data
+      - ${NEUROANNOTATE_HOST_DATA_DIR:-./data}:/app/data
       - ./sample_data:/app/sample_data
     ports:
       - "8000:8000"
@@ -31,3 +32,28 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  deepisles:
+    profiles: ["gpu"]
+    build:
+      context: ./inference-service
+    environment:
+      NEUROANNOTATE_DEEPISLES_COMMIT: 7658b608fc0d890cf14448ff3e58c47ad5c761e7
+    volumes:
+      - deepisles-model-cache:/models
+    healthcheck:
+      test: ["CMD", "python3.8", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  deepisles-model-cache:

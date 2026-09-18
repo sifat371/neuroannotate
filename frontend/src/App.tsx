@@ -117,7 +117,7 @@ export default function App() {
           <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} onEditStateChange={updateEditState} />
         </section>
         <aside className="right-rail">
-          <InferenceControls selectedCase={selectedCase} job={activeJob} onJobChange={handleJobChange} />
+          <InferenceControls selectedCase={selectedCase} job={activeJob} onJobChange={handleJobChange} health={health} />
           <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.sourceInferenceId ?? null} segmentation={segmentation} selectedRevisionId={workspace.loadedRevisionId} dirty={workspace.dirty} onDirtyChange={setDirtyState} onSelectedRevisionId={workspace.loadRevision} onLoadRevision={setRevisionUrl} />
           <ExportPanel caseId={selectedCase?.id ?? null} revision={workspace.loadedRevisionId ? { id: workspace.loadedRevisionId } : null} dirty={workspace.dirty} />
           <SystemStatus health={health} />
