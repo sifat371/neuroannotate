@@ -58,6 +58,18 @@ def _source_metadata(source: SourceArtifact) -> NiftiMetadata:
     )
 
 
+def _assert_compatible_spacing(
+    reference: NiftiMetadata,
+    candidate: NiftiMetadata,
+) -> None:
+    if not np.allclose(reference.spacing, candidate.spacing, atol=1e-5, rtol=0):
+        raise ApiError(
+            422,
+            "incompatible_geometry",
+            "NIfTI spacing does not match the case DWI",
+        )
+
+
 def _publish_without_overwrite(source: Path, destination: Path) -> None:
     """Atomically rename a same-filesystem file without replacing an artifact."""
     descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -150,6 +162,7 @@ def create_revision(
     )
     base_metadata = validate_source_nifti(base_path)
     assert_compatible_geometry(dwi_metadata, base_metadata)
+    _assert_compatible_spacing(dwi_metadata, base_metadata)
     parent = load_volume(base_path).data
     output_path = storage.revision_path(case_id)
     if output_path.exists():
@@ -164,9 +177,11 @@ def create_revision(
                 current,
                 np.asarray(dwi_metadata.affine),
                 dtype=np.uint8,
+                spacing=dwi_metadata.spacing,
             )
             saved_metadata = validate_source_nifti(temporary_path)
             assert_compatible_geometry(dwi_metadata, saved_metadata)
+            _assert_compatible_spacing(dwi_metadata, saved_metadata)
             saved = load_volume(temporary_path)
             if saved_metadata.datatype != "uint8" or not np.isin(saved.data, (0, 1)).all():
                 raise ApiError(

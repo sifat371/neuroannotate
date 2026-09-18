@@ -111,6 +111,7 @@ def save_volume(
     data: np.ndarray,
     affine: np.ndarray,
     dtype=np.float32,
+    spacing: tuple[float, float, float] | None = None,
 ) -> Path:
     path = Path(path)
     array = np.asarray(data, dtype=dtype)
@@ -120,10 +121,20 @@ def save_volume(
     affine = np.asarray(affine, dtype=float)
     if affine.shape != (4, 4) or not np.isfinite(affine).all():
         raise ValueError("invalid affine")
+    stored_spacing = (
+        tuple(float(value) for value in spacing)
+        if spacing is not None
+        else tuple(float(np.linalg.norm(affine[:3, axis])) or 1.0 for axis in range(3))
+    )
+    if len(stored_spacing) != 3 or any(
+        not np.isfinite(value) or value <= 0 for value in stored_spacing
+    ):
+        raise ValueError("invalid voxel spacing")
 
     if nib is not None:
         image = nib.Nifti1Image(array, affine)
         image.header.set_data_dtype(array.dtype)
+        image.header.set_zooms(stored_spacing)
         nib.save(image, str(path))
         return path
 
@@ -146,8 +157,7 @@ def save_volume(
     struct.pack_into("<8h", header, 40, 3, *array.shape, 1, 1, 1, 1)
     struct.pack_into("<h", header, 70, datatype)
     struct.pack_into("<h", header, 72, bitpix)
-    spacing = [float(np.linalg.norm(affine[:3, i])) or 1.0 for i in range(3)]
-    struct.pack_into("<8f", header, 76, 1.0, *spacing, 1.0, 0.0, 0.0, 0.0)
+    struct.pack_into("<8f", header, 76, 1.0, *stored_spacing, 1.0, 0.0, 0.0, 0.0)
     struct.pack_into("<f", header, 108, 352.0)
     struct.pack_into("<h", header, 254, 1)  # sform_code
     struct.pack_into("<4f", header, 280, *affine[0, :].astype(float))

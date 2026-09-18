@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import pytest
 from sqlalchemy import event, select
@@ -8,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import AnnotationRevision, SegmentationArtifact
+from app.db.models import AnnotationRevision, SegmentationArtifact, SourceArtifact
 from app.db.session import new_session
 from app.services.nifti_codec import load_volume
 from app.services.nifti_codec import save_volume as write_nifti
@@ -21,6 +22,7 @@ def _prepare_completed_segmentation(
     tmp_path: Path,
     shape: tuple[int, int, int] = (4, 4, 4),
     affine: np.ndarray | None = None,
+    header_spacing: tuple[float, float, float] | None = None,
 ) -> tuple[str, SegmentationArtifact]:
     case_id = create_case(client)["id"]
     if affine is None:
@@ -30,7 +32,16 @@ def _prepare_completed_segmentation(
             path = tmp_path / f"{modality.lower()}.nii.gz"
             data = np.zeros(shape, dtype=np.float32)
             data[1:3, 1:3, :] = 2 if modality == "DWI" else 1
-            write_nifti(path, data, affine, dtype=np.float32)
+            if header_spacing is None:
+                write_nifti(path, data, affine, dtype=np.float32)
+            else:
+                _write_nifti_with_header_spacing(
+                    path,
+                    data,
+                    affine,
+                    header_spacing,
+                    np.float32,
+                )
             response = client.post(
                 f"/api/cases/{case_id}/modalities/{modality}",
                 files={"file": (path.name, path.read_bytes(), "application/gzip")},
@@ -43,6 +54,19 @@ def _prepare_completed_segmentation(
         assert segmentation is not None
         session.expunge(segmentation)
     return case_id, segmentation
+
+
+def _write_nifti_with_header_spacing(
+    path: Path,
+    data: np.ndarray,
+    affine: np.ndarray,
+    spacing: tuple[float, float, float],
+    dtype: type[np.generic],
+) -> None:
+    image = nib.Nifti1Image(np.asarray(data, dtype=dtype), affine)
+    image.header.set_data_dtype(dtype)
+    image.header.set_zooms(spacing)
+    nib.save(image, str(path))
 
 
 def _save_revision(
@@ -272,3 +296,87 @@ def test_atomic_rename_failure_leaves_no_revision_artifact_or_row(
         assert session.scalar(select(AnnotationRevision)) is None
     revision_dir = settings.data_dir / "cases" / case_id / "revisions"
     assert not list(revision_dir.glob("*.nii.gz"))
+
+
+def test_revision_preserves_dwi_header_spacing_and_uses_it_for_volume(
+    client,
+    tmp_path: Path,
+) -> None:
+    shape = (4, 4, 4)
+    affine = np.eye(4)
+    dwi_spacing = (2.0, 3.0, 4.0)
+    case_id, segmentation = _prepare_completed_segmentation(
+        client,
+        tmp_path,
+        shape,
+        affine,
+        dwi_spacing,
+    )
+    base_path = settings.data_dir / segmentation.relative_path
+    base = load_volume(base_path).data.astype(np.uint8)
+    _write_nifti_with_header_spacing(
+        base_path,
+        base,
+        affine,
+        dwi_spacing,
+        np.uint8,
+    )
+    with new_session() as session:
+        dwi = session.scalar(
+            select(SourceArtifact).where(
+                SourceArtifact.case_id == case_id,
+                SourceArtifact.modality == "DWI",
+            )
+        )
+        assert dwi is not None
+        dwi_path = settings.data_dir / dwi.relative_path
+
+    source = load_volume(dwi_path)
+    assert source.spacing == pytest.approx(dwi_spacing)
+    np.testing.assert_allclose(source.affine, affine, atol=1e-5, rtol=0)
+
+    response = _save_revision(
+        client,
+        case_id,
+        base,
+        source_segmentation_id=segmentation.id,
+    )
+
+    assert response.status_code == 201, response.text
+    revision = response.json()
+    expected_volume_ml = float(np.count_nonzero(base)) * 24.0 / 1000.0
+    assert revision["edit_stats"]["lesion_volume_ml"] == pytest.approx(
+        expected_volume_ml
+    )
+    saved_response = client.get(f"/api/revisions/{revision['id']}/file.nii.gz")
+    saved_path = tmp_path / "spacing-preserved.nii.gz"
+    saved_path.write_bytes(saved_response.content)
+    saved = load_volume(saved_path)
+    assert saved.spacing == pytest.approx(dwi_spacing)
+    np.testing.assert_allclose(saved.affine, affine, atol=1e-5, rtol=0)
+
+
+def test_revision_rejects_base_spacing_that_differs_from_dwi(
+    client,
+    tmp_path: Path,
+) -> None:
+    case_id, segmentation = _prepare_completed_segmentation(
+        client,
+        tmp_path,
+        affine=np.eye(4),
+        header_spacing=(2.0, 3.0, 4.0),
+    )
+    base = load_volume(settings.data_dir / segmentation.relative_path)
+    assert base.spacing == pytest.approx((1.0, 1.0, 1.0))
+
+    response = _save_revision(
+        client,
+        case_id,
+        base.data,
+        source_segmentation_id=segmentation.id,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "incompatible_geometry"
+    with new_session() as session:
+        assert session.scalar(select(AnnotationRevision)) is None
