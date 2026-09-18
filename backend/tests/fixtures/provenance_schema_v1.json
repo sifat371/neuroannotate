@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "software", "export", "case", "sources", "ai_segmentation", "annotation", "output", "disclaimer"],
+  "properties": {
+    "schema": {"const": "neuroannotate.provenance"},
+    "schema_version": {"const": "1.0"},
+    "software": {"type": "object", "additionalProperties": false, "required": ["name", "version", "git_commit"], "properties": {"name": {"type": "string"}, "version": {"type": "string"}, "git_commit": {"type": ["string", "null"]}}},
+    "export": {"type": "object", "additionalProperties": false, "required": ["export_id", "created_at"], "properties": {"export_id": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}},
+    "case": {"type": "object", "additionalProperties": false, "required": ["case_id", "annotation_space"], "properties": {"case_id": {"type": "string"}, "annotation_space": {"const": "DWI"}}},
+    "sources": {"type": "object", "additionalProperties": false, "required": ["DWI", "ADC", "FLAIR"], "properties": {"DWI": {"$ref": "#/$defs/artifact"}, "ADC": {"$ref": "#/$defs/artifact"}, "FLAIR": {"$ref": "#/$defs/artifact"}}},
+    "ai_segmentation": {"type": "object", "additionalProperties": false, "required": ["artifact_id", "sha256", "inference_job_id", "provider", "model_name", "model_version", "service_version", "timestamps", "configuration", "runtime"], "properties": {"artifact_id": {"type": "string"}, "sha256": {"$ref": "#/$defs/hash"}, "inference_job_id": {"type": "string"}, "provider": {"type": "string"}, "model_name": {"type": "string"}, "model_version": {"type": "string"}, "service_version": {"type": "string"}, "timestamps": {"type": "object", "additionalProperties": false, "required": ["created_at", "started_at", "completed_at"], "properties": {"created_at": {"type": "string", "format": "date-time"}, "started_at": {"type": "string", "format": "date-time"}, "completed_at": {"type": "string", "format": "date-time"}}}, "configuration": {"type": "object"}, "runtime": {"type": "object"}}},
+    "annotation": {"type": "object", "additionalProperties": false, "required": ["revision_id", "parent_revision_id", "created_at", "note", "lineage", "edit_summary"], "properties": {"revision_id": {"type": "string"}, "parent_revision_id": {"type": ["string", "null"]}, "created_at": {"type": "string", "format": "date-time"}, "note": {"type": ["string", "null"]}, "lineage": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "edit_summary": {"type": "object"}}},
+    "output": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "datatype", "label_map", "shape", "spacing", "affine"], "properties": {"filename": {"const": "lesion-mask.nii.gz"}, "sha256": {"$ref": "#/$defs/hash"}, "datatype": {"const": "uint8"}, "label_map": {"type": "object", "additionalProperties": false, "required": ["0", "1"], "properties": {"0": {"const": "background"}, "1": {"const": "lesion"}}}, "shape": {"$ref": "#/$defs/triplet"}, "spacing": {"$ref": "#/$defs/triplet"}, "affine": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}}}},
+    "disclaimer": {"const": "Research software only. Not for diagnosis or clinical decision-making."}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "triplet": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["artifact_id", "sha256", "shape", "spacing", "datatype", "affine"], "properties": {"artifact_id": {"type": "string"}, "sha256": {"$ref": "#/$defs/hash"}, "shape": {"$ref": "#/$defs/triplet"}, "spacing": {"$ref": "#/$defs/triplet"}, "datatype": {"type": "string"}, "affine": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}}}}
+  }
+}
