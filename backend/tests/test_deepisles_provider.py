@@ -14,9 +14,9 @@ from app.services.inference.base import CaseInput, ProviderOutputPersistenceErro
 from app.services.nifti_codec import save_volume
 
 
-def _mask_archive(mask_bytes, metadata=None, names=None):
+def _mask_archive(mask_bytes, metadata=None, names=None, compression=zipfile.ZIP_STORED):
     payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w") as archive:
+    with zipfile.ZipFile(payload, "w", compression=compression) as archive:
         for name in names or ("segmentation.nii.gz", "metadata.json"):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
@@ -64,6 +64,22 @@ class _Response:
     def __init__(self, status_code, content):
         self.status_code = status_code
         self.content = content
+        self.headers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def iter_bytes(self):
+        yield self.content
+
+
+class _StreamingClient:
+    def stream(self, method, url, files):
+        assert method == "POST"
+        return self.post(url, files)
 
 
 def test_provider_posts_exact_triad_and_writes_valid_result(tmp_path, monkeypatch):
@@ -74,7 +90,7 @@ def test_provider_posts_exact_triad_and_writes_valid_result(tmp_path, monkeypatc
     save_volume(source_mask, np.ones((4, 5, 6)), np.eye(4), dtype=np.uint8)
     seen = {}
 
-    class Client:
+    class Client(_StreamingClient):
         def __init__(self, timeout):
             assert timeout is None
 
@@ -125,7 +141,7 @@ def test_provider_rejects_runtime_or_unsafe_response(tmp_path, monkeypatch, stat
     """Permitting service failures or unsafe ZIP payloads must fail this test."""
     from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
 
-    class Client:
+    class Client(_StreamingClient):
         def __init__(self, timeout):
             del timeout
 
@@ -157,7 +173,7 @@ def test_connection_error_maps_to_worker_provider_unavailable(client, tmp_path, 
         f"/api/cases/{case_id}/inference-jobs", json={"provider": "deepisles"}
     ).json()
 
-    class Client:
+    class Client(_StreamingClient):
         def __init__(self, timeout):
             assert timeout is None
 
@@ -181,7 +197,7 @@ def test_local_output_failure_maps_to_persistence_error(tmp_path, monkeypatch):
     """A local disk write failure must not be relabelled as a service failure."""
     from app.services.inference.deepisles import DeepISLESProvider
 
-    class Client:
+    class Client(_StreamingClient):
         def __init__(self, timeout):
             del timeout
 
@@ -204,6 +220,218 @@ def test_local_output_failure_maps_to_persistence_error(tmp_path, monkeypatch):
         DeepISLESProvider("http://service:8080").segment(
             _case(tmp_path), tmp_path / "result.nii.gz"
         )
+
+
+def test_provider_rejects_oversized_content_length_before_output(tmp_path, monkeypatch):
+    """An oversized declared response must not be buffered or published."""
+    from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
+
+    archive = _mask_archive(b"mask")
+
+    class Response:
+        status_code = 200
+        headers = {"content-length": str(10 * 1024 * 1024)}
+        content = archive
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def iter_bytes(self):
+            yield self.content
+
+    class Client(_StreamingClient):
+        def __init__(self, timeout):
+            assert timeout is None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, files):
+            del files
+            return Response()
+
+        def stream(self, _method, _url, files):
+            del files
+            return Response()
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr("app.services.inference.deepisles.httpx.Client", Client)
+    output = tmp_path / "result.nii.gz"
+    with pytest.raises(ProviderRuntimeError):
+        DeepISLESProvider("http://service:8080").segment(_case(tmp_path), output)
+    assert not output.exists()
+
+
+def test_provider_caps_chunked_response_before_output(tmp_path, monkeypatch):
+    """A chunked response beyond the cap must not be buffered or published."""
+    from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
+
+    archive = _mask_archive(b"mask")
+
+    class Response:
+        status_code = 200
+        headers = {}
+        content = archive
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def iter_bytes(self):
+            yield archive
+            yield b"x" * (3 * 1024 * 1024)
+
+    class Client(_StreamingClient):
+        def __init__(self, timeout):
+            assert timeout is None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, files):
+            del files
+            return Response()
+
+        def stream(self, _method, _url, files):
+            del files
+            return Response()
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr("app.services.inference.deepisles.httpx.Client", Client)
+    output = tmp_path / "result.nii.gz"
+    with pytest.raises(ProviderRuntimeError):
+        DeepISLESProvider("http://service:8080").segment(_case(tmp_path), output)
+    assert not output.exists()
+
+
+def test_provider_rejects_oversized_member_before_read(tmp_path, monkeypatch):
+    """A declared oversized ZIP member must be rejected before decompression."""
+    from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
+
+    archive = _mask_archive(b"x" * (3 * 1024 * 1024 // 2))
+
+    class Client(_StreamingClient):
+        def __init__(self, timeout):
+            del timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, files):
+            del files
+            return _Response(200, archive)
+
+    def unexpected_read(*_args, **_kwargs):
+        raise AssertionError("oversized member was decompressed")
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr("app.services.inference.deepisles.httpx.Client", Client)
+    monkeypatch.setattr(zipfile.ZipFile, "read", unexpected_read)
+    output = tmp_path / "result.nii.gz"
+    with pytest.raises(ProviderRuntimeError):
+        DeepISLESProvider("http://service:8080").segment(_case(tmp_path), output)
+    assert not output.exists()
+
+
+def test_provider_rejects_oversized_metadata_before_read(tmp_path, monkeypatch):
+    """An oversized metadata declaration must be rejected before decompression."""
+    from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
+
+    archive = _mask_archive(b"mask", metadata={"padding": "x" * (3 * 1024 * 1024 // 2)})
+
+    class Client(_StreamingClient):
+        def __init__(self, timeout):
+            del timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, files):
+            del files
+            return _Response(200, archive)
+
+    def unexpected_read(*_args, **_kwargs):
+        raise AssertionError("oversized metadata was decompressed")
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr("app.services.inference.deepisles.httpx.Client", Client)
+    monkeypatch.setattr(zipfile.ZipFile, "read", unexpected_read)
+    output = tmp_path / "result.nii.gz"
+    with pytest.raises(ProviderRuntimeError):
+        DeepISLESProvider("http://service:8080").segment(_case(tmp_path), output)
+    assert not output.exists()
+
+
+def test_provider_rejects_high_ratio_zip_before_output(tmp_path, monkeypatch):
+    """A highly compressible archive must not be decompressed into an output artifact."""
+    from app.services.inference.deepisles import DeepISLESProvider, ProviderRuntimeError
+
+    archive = _mask_archive(
+        b"\x00" * (512 * 1024), compression=zipfile.ZIP_DEFLATED
+    )
+
+    class Client(_StreamingClient):
+        def __init__(self, timeout):
+            del timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, files):
+            del files
+            return _Response(200, archive)
+
+    monkeypatch.setattr("app.services.inference.deepisles.httpx.Client", Client)
+    output = tmp_path / "result.nii.gz"
+    with pytest.raises(ProviderRuntimeError):
+        DeepISLESProvider("http://service:8080").segment(_case(tmp_path), output)
+    assert not output.exists()
+
+
+def test_provider_member_reader_caps_a_lie_beyond_declared_zip_size():
+    """A member that expands past its declaration must trip the limit-plus-one read cap."""
+    from app.services.inference.deepisles import DeepISLESProvider
+
+    requests = []
+
+    class Member:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, size):
+            requests.append(size)
+            return b"x" * 11
+
+    class Archive:
+        def open(self, _info):
+            return Member()
+
+    with pytest.raises(ValueError, match="exceeds"):
+        DeepISLESProvider._read_member(Archive(), object(), 10)
+    assert requests == [11]
 
 
 def test_registry_keeps_demo_default_and_exposes_configured_deepisles(monkeypatch):

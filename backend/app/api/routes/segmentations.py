@@ -45,12 +45,19 @@ def segment(case_id: str, session: Session = Depends(get_session)):
         )
 
     storage = Storage(settings.data_dir)
+    provider = get_provider()
+    if getattr(provider, "requires_async", False):
+        raise ApiError(
+            409,
+            "async_provider_required",
+            "This provider must be run through inference-jobs",
+        )
     paths = {
         artifact.modality: storage.resolve(artifact.relative_path)
         for artifact in case.source_artifacts
     }
     output = storage.inference_path(case_id)
-    result = get_provider().segment(CaseInput(case_id, paths), output)
+    result = provider.segment(CaseInput(case_id, paths), output)
     metadata = inspect_nifti(result.mask_path)
     with result.mask_path.open("rb") as file_handle:
         sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
