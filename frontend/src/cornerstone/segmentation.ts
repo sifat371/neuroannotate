@@ -11,6 +11,30 @@ const { MouseBindings, SegmentationRepresentations } = ToolEnums;
 const { DefaultHistoryMemo } = csUtils.HistoryMemo;
 let brushRegistered = false;
 
+export interface VolumeGeometry {
+  shape: [number, number, number];
+  affine: number[][];
+}
+
+const AFFINE_TOLERANCE = 1e-5;
+
+function isValidGeometry(geometry: VolumeGeometry): boolean {
+  return Array.isArray(geometry?.shape)
+    && geometry.shape.length === 3
+    && geometry.shape.every((dimension) => Number.isInteger(dimension) && dimension > 0)
+    && Array.isArray(geometry?.affine)
+    && geometry.affine.length === 4
+    && geometry.affine.every((row) => Array.isArray(row) && row.length === 4 && row.every(Number.isFinite));
+}
+
+export function canDisplaySegmentationOn(source: VolumeGeometry, dwi: VolumeGeometry): boolean {
+  if (!isValidGeometry(source) || !isValidGeometry(dwi)) return false;
+  return source.shape.every((dimension, index) => dimension === dwi.shape[index])
+    && source.affine.every((row, rowIndex) => row.every(
+      (value, columnIndex) => Math.abs(value - dwi.affine[rowIndex][columnIndex]) <= AFFINE_TOLERANCE,
+    ));
+}
+
 export type EditableSegmentation = {
   segmentationId: string;
   volumeId: string;

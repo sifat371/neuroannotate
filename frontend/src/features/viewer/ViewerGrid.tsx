@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
-import { attachLabelmap, setOverlayOpacity, setOverlayVisible, type EditableSegmentation } from '../../cornerstone/segmentation';
-import { createViewerSession, type ViewerSession } from '../../cornerstone/viewer';
+import { attachLabelmap, canDisplaySegmentationOn, setOverlayOpacity, setOverlayVisible, type EditableSegmentation } from '../../cornerstone/segmentation';
+import { createViewerSession, getVolumeGeometry, type ViewerSession } from '../../cornerstone/viewer';
 import type { CaseSummary, Modality } from '../../types/api';
 import { Viewport } from './Viewport';
 
@@ -68,8 +68,22 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     let cancelled = false;
     async function mountSegmentation() {
       if (!inference || !selectedCase || !sessionRef.current) return;
+      const session = sessionRef.current;
+      const dwiGeometry = modality === 'DWI'
+        ? session.geometry
+        : await getVolumeGeometry(api.sourceFileUrl(selectedCase.id, 'DWI'), `${selectedCase.id}-dwi`);
+      if (cancelled || sessionRef.current !== session) return;
+      if (!canDisplaySegmentationOn(session.geometry, dwiGeometry)) {
+        segmentationRef.current?.destroy();
+        segmentationRef.current = null;
+        setEditableSegmentation(null);
+        revisionRequest.current += 1;
+        onSegmentationChanged(null);
+        setStatus('Segmentation overlay unavailable in this geometry.');
+        return;
+      }
       segmentationRef.current?.destroy();
-      const seg = await attachLabelmap(sessionRef.current, api.segmentationFileUrl(inference.segmentationId), inference.sourceInferenceId, onEditStateChange);
+      const seg = await attachLabelmap(session, api.segmentationFileUrl(inference.segmentationId), inference.sourceInferenceId, onEditStateChange);
       if (cancelled) { seg.destroy(); return; }
       segmentationRef.current = seg;
       setEditableSegmentation(seg);
@@ -80,7 +94,7 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     }
     void mountSegmentation().catch((error) => setStatus(error instanceof Error ? error.message : 'Could not load segmentation.'));
     return () => { cancelled = true; };
-  }, [inference?.segmentationId, inference?.sourceInferenceId, selectedCase?.id, sessionVersion]);
+  }, [inference?.segmentationId, inference?.sourceInferenceId, selectedCase?.id, modality, sessionVersion]);
 
   useEffect(() => {
     const seg = segmentationRef.current;
