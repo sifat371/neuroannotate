@@ -64,6 +64,7 @@ export async function attachLabelmap(
   session: ViewerSession,
   niftiUrl: string,
   sourceInferenceId: string,
+  onDirtyChange?: (dirty: boolean) => void,
 ): Promise<EditableSegmentation> {
   ensureBrushRegistered();
   const segmentationId = `seg-${sourceInferenceId}-${crypto.randomUUID()}`;
@@ -99,7 +100,7 @@ export async function attachLabelmap(
 
   const dataModified = (event: Event) => {
     const detail = (event as CustomEvent<{ segmentationId?: string }>).detail;
-    if (detail?.segmentationId === segmentationId) dirty = true;
+    if (detail?.segmentationId === segmentationId) { dirty = true; onDirtyChange?.(true); }
   };
   eventTarget.addEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);
 
@@ -127,11 +128,11 @@ export async function attachLabelmap(
     },
     undo() {
       DefaultHistoryMemo.undo();
-      dirty = true;
+      dirty = true; onDirtyChange?.(true);
     },
     redo() {
       DefaultHistoryMemo.redo();
-      dirty = true;
+      dirty = true; onDirtyChange?.(true);
     },
     getCurrentLabelmap() {
       const volume = cache.getVolume(volumeId);
@@ -141,12 +142,12 @@ export async function attachLabelmap(
       }
       return serializeLabelmap(voxelManager.getCompleteScalarDataArray(), volume.dimensions);
     },
-    markSaved() { dirty = false; },
+    markSaved() { dirty = false; onDirtyChange?.(false); },
     async replaceFromNifti(url) {
       const replacement = await loadMaskData(url, segmentationId);
       copyIntoLabelmap(volumeId, replacement);
       segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
-      dirty = false;
+      dirty = false; onDirtyChange?.(false);
       session.renderingEngine.render();
     },
     destroy() {

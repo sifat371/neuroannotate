@@ -2,21 +2,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { attachLabelmap, setOverlayOpacity, setOverlayVisible, type EditableSegmentation } from '../../cornerstone/segmentation';
 import { createViewerSession, type ViewerSession } from '../../cornerstone/viewer';
-import type { CaseSummary, InferenceRun, Modality } from '../../types/api';
+import type { CaseSummary, Modality } from '../../types/api';
 import { Viewport } from './Viewport';
 
 type Props = {
   selectedCase: CaseSummary | null;
   modality: Modality;
-  inference: InferenceRun | null;
+  inference: { sourceInferenceId: string; segmentationId: string } | null;
   revisionUrl?: string | null;
   overlayVisible: boolean;
   overlayOpacity: number;
   activeTool: 'brush' | 'erase' | 'pan' | 'zoom' | 'windowLevel';
   onSegmentationChanged: (segmentation: EditableSegmentation | null) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, overlayVisible, overlayOpacity, activeTool, onSegmentationChanged }: Props) {
+export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, overlayVisible, overlayOpacity, activeTool, onSegmentationChanged, onDirtyChange }: Props) {
   const axial = useRef<HTMLDivElement | null>(null);
   const sagittal = useRef<HTMLDivElement | null>(null);
   const coronal = useRef<HTMLDivElement | null>(null);
@@ -25,7 +26,7 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
   const [status, setStatus] = useState('Select a case with an uploaded volume.');
   const [sessionVersion, setSessionVersion] = useState(0);
   const hasVolume = selectedCase?.modalities.includes(modality) ?? false;
-  const modalityUrl = useMemo(() => selectedCase && hasVolume ? api.getModalityFileUrl(selectedCase.id, modality) : null, [selectedCase, modality, hasVolume]);
+  const modalityUrl = useMemo(() => selectedCase && hasVolume ? api.sourceFileUrl(selectedCase.id, modality) : null, [selectedCase, modality, hasVolume]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +67,7 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     async function mountSegmentation() {
       if (!inference || !selectedCase || !sessionRef.current) return;
       segmentationRef.current?.destroy();
-      const seg = await attachLabelmap(sessionRef.current, api.getLatestSegmentationFileUrl(selectedCase.id), inference.id);
+      const seg = await attachLabelmap(sessionRef.current, api.segmentationFileUrl(inference.segmentationId), inference.sourceInferenceId, onDirtyChange);
       if (cancelled) { seg.destroy(); return; }
       segmentationRef.current = seg;
       setOverlayVisible(seg, overlayVisible);
@@ -76,7 +77,7 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     }
     void mountSegmentation().catch((error) => setStatus(error instanceof Error ? error.message : 'Could not load segmentation.'));
     return () => { cancelled = true; };
-  }, [inference?.id, selectedCase?.id, sessionVersion]);
+  }, [inference?.segmentationId, inference?.sourceInferenceId, selectedCase?.id, sessionVersion]);
 
   useEffect(() => {
     const seg = segmentationRef.current;

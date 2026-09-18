@@ -80,14 +80,11 @@ export interface ExportArtifact {
 export interface SystemHealth {
   status: 'ok';
   service: 'neuroannotate-api';
-}
-
-// Compatibility contract for the temporary pre-v1 segmentation route.
-export interface InferenceRun {
-  id: string;
-  case_id: string;
-  provider: string;
-  status: string;
-  metadata: Record<string, string | number | boolean>;
-  created_at: string;
+  storage?: 'ok' | 'unavailable';
+  database?: 'ok' | 'unavailable';
+  inference?: {
+    mode: 'demo' | 'gpu';
+    deepisles: 'ready' | 'not_enabled' | 'unavailable';
+    ready: boolean;
+  };
 }

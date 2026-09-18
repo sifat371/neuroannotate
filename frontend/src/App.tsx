@@ -7,8 +7,10 @@ import { CaseUploadPanel } from './features/cases/CaseUploadPanel';
 import { InferenceControls } from './features/inference/InferenceControls';
 import { RevisionPanel } from './features/revisions/RevisionPanel';
 import { ViewerGrid } from './features/viewer/ViewerGrid';
+import { ExportPanel } from './features/exports/ExportPanel';
+import { SystemStatus } from './features/system/SystemStatus';
 import { useWorkspace } from './state/workspace';
-import type { CaseSummary, InferenceRun, Modality } from './types/api';
+import type { CaseSummary, InferenceJob, Modality, SystemHealth } from './types/api';
 
 const modalities: Modality[] = ['DWI', 'ADC', 'FLAIR'];
 
@@ -17,7 +19,9 @@ export default function App() {
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [loadingCases, setLoadingCases] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [inference, setInference] = useState<InferenceRun | null>(null);
+  const [inference, setInference] = useState<{ sourceInferenceId: string; segmentationId: string } | null>(null);
+  const [activeJob, setActiveJob] = useState<InferenceJob | null>(null);
+  const [health, setHealth] = useState<SystemHealth | null>(null);
   const [segmentation, setSegmentation] = useState<EditableSegmentation | null>(null);
   const [revisionUrl, setRevisionUrl] = useState<string | null>(null);
   const selectedCase = useMemo(() => cases.find((item) => item.id === workspace.selectedCaseId) ?? null, [cases, workspace.selectedCaseId]);
@@ -29,17 +33,36 @@ export default function App() {
     }).catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load cases.')).finally(() => setLoadingCases(false));
   }, []);
 
+  useEffect(() => { void api.getSystemHealth().then(setHealth).catch(() => setHealth(null)); }, []);
+
   useEffect(() => {
-    setInference(null); setSegmentation(null); setRevisionUrl(null);
+    setInference(null); setActiveJob(null); setSegmentation(null); setRevisionUrl(null);
     if (!selectedCase) return;
-    void api.getLatestSegmentation(selectedCase.id).then(setInference).catch(() => undefined);
+    void api.listInferenceJobs(selectedCase.id).then((jobs) => {
+      const next = jobs.find((job) => job.status === 'queued' || job.status === 'running') ?? jobs[0] ?? null;
+      if (next) handleJobChange(next);
+    }).catch(() => undefined);
   }, [selectedCase?.id]);
+
+  function handleJobChange(job: InferenceJob) {
+    setActiveJob(job); workspace.setActiveJobId(job.id);
+    if (job.status === 'completed' && job.segmentation_id) {
+      setInference({ sourceInferenceId: job.id, segmentationId: job.segmentation_id });
+      workspace.loadSegmentation(job.segmentation_id);
+      setRevisionUrl(null);
+    }
+  }
 
   function upsertCase(item: CaseSummary) {
     setCases((existing) => {
       const found = existing.some((candidate) => candidate.id === item.id);
       return found ? existing.map((candidate) => candidate.id === item.id ? item : candidate) : [item, ...existing];
     });
+  }
+
+  function selectCase(id: string) {
+    if (id !== workspace.selectedCaseId && workspace.dirty && !window.confirm('Unsaved mask edits will be discarded.')) return;
+    workspace.setSelectedCaseId(id);
   }
 
   return (
@@ -51,7 +74,7 @@ export default function App() {
       {error ? <div className="global-error" role="alert">{error}</div> : null}
       <main className="workspace-layout">
         <aside className="left-rail">
-          <CaseSidebar cases={cases} selectedCaseId={workspace.selectedCaseId} onSelect={workspace.setSelectedCaseId} loading={loadingCases} />
+          <CaseSidebar cases={cases} selectedCaseId={workspace.selectedCaseId} onSelect={selectCase} loading={loadingCases} />
           <CaseUploadPanel selectedCase={selectedCase} onCaseChanged={upsertCase} onCaseCreated={(item) => { upsertCase(item); workspace.setSelectedCaseId(item.id); }} />
         </aside>
         <section className="center-stage">
@@ -64,12 +87,14 @@ export default function App() {
               <input aria-label="Overlay opacity" type="range" min="0" max="1" step="0.05" value={workspace.overlayOpacity} disabled={!segmentation} onChange={(event: ChangeEvent<HTMLInputElement>) => workspace.setOverlayOpacity(Number(event.target.value))} />
             </div>
           </div>
-          <AnnotationToolbar segmentation={segmentation} activeTool={workspace.activeTool} onToolChange={workspace.setActiveTool} />
-          <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} />
+          <AnnotationToolbar segmentation={segmentation} activeTool={workspace.activeTool} onToolChange={workspace.setActiveTool} baseLabel={workspace.baseRevisionId ? `Revision ${workspace.baseRevisionId}` : inference ? 'AI segmentation' : 'No segmentation'} dirty={workspace.dirty} onDirtyChange={workspace.setDirty} />
+          <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} onDirtyChange={workspace.setDirty} />
         </section>
         <aside className="right-rail">
-          <InferenceControls selectedCase={selectedCase} onSegmentationReady={(run) => { setInference(run); workspace.loadSegmentation(null); setRevisionUrl(null); }} />
-          <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.id ?? null} segmentation={segmentation} selectedRevisionId={workspace.loadedRevisionId} onSelectedRevisionId={workspace.loadRevision} onLoadRevision={setRevisionUrl} />
+          <InferenceControls selectedCase={selectedCase} job={activeJob} onJobChange={handleJobChange} />
+          <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.sourceInferenceId ?? null} segmentation={segmentation} selectedRevisionId={workspace.loadedRevisionId} dirty={workspace.dirty} onDirtyChange={workspace.setDirty} onSelectedRevisionId={workspace.loadRevision} onLoadRevision={setRevisionUrl} />
+          <ExportPanel caseId={selectedCase?.id ?? null} revision={workspace.loadedRevisionId ? { id: workspace.loadedRevisionId } : null} dirty={workspace.dirty} />
+          <SystemStatus health={health} />
           <section className="panel shortcut-panel"><p className="eyebrow">Shortcuts</p><div><kbd>⌘/Ctrl Z</kbd><span>Undo</span></div><div><kbd>⇧ ⌘/Ctrl Z</kbd><span>Redo</span></div><div><kbd>Wheel</kbd><span>Change slice</span></div></section>
         </aside>
       </main>

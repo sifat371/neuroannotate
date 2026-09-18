@@ -3,7 +3,6 @@ import type {
   CaseSummary,
   ExportArtifact,
   InferenceJob,
-  InferenceRun,
   Modality,
   ProviderInfo,
   Revision,
@@ -181,23 +180,4 @@ export const api = {
   exportProvenanceUrl,
   exportBundleUrl,
 
-  // Temporary MVP endpoints are retained only for the current UI until Task 7 migrates it.
-  uploadModality: (caseId: string, modality: Modality, file: File) => {
-    const body = new FormData();
-    body.append('file', file);
-    return request<CaseSummary>(`/api/cases/${caseId}/modalities/${modality}`, { method: 'POST', body });
-  },
-  getModalityFileUrl: sourceFileUrl,
-  runSegmentation: (caseId: string) => request<InferenceRun>(`/api/cases/${caseId}/segment`, { method: 'POST' }),
-  getLatestSegmentation: async (caseId: string): Promise<InferenceRun | null> => {
-    try {
-      return await request<InferenceRun>(`/api/cases/${caseId}/segmentations/latest`);
-    } catch (error) {
-      if (error instanceof ApiError && error.code === 'segmentation_not_found') return null;
-      throw error;
-    }
-  },
-  getLatestSegmentationFileUrl: (caseId: string) => apiUrl(`/api/cases/${caseId}/segmentations/latest/file.nii.gz`),
-  getRevisionFileUrl: (caseId: string, revisionId: string) => apiUrl(`/api/cases/${caseId}/revisions/${revisionId}/file.nii.gz`),
-  getExportUrl: (caseId: string, revisionId: string) => apiUrl(`/api/cases/${caseId}/export?revision_id=${encodeURIComponent(revisionId)}`),
 };

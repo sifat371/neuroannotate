@@ -21,6 +21,7 @@ export type WorkspaceState = {
   loadSegmentation: (id: string | null) => void;
   loadRevision: (id: string | null) => void;
   markDirty: () => void;
+  setDirty: (dirty: boolean) => void;
   markRevisionSaved: (id: string) => void;
   setActiveJobId: (id: string | null) => void;
   setOverlayVisible: (visible: boolean) => void;
@@ -64,6 +65,7 @@ const createWorkspaceState: StateCreator<WorkspaceState> = (set, get) => ({
     dirty: false,
   }),
   markDirty: () => set({ dirty: true }),
+  setDirty: (dirty) => set({ dirty }),
   markRevisionSaved: (revisionId) => set({
     loadedRevisionId: revisionId,
     baseRevisionId: revisionId,

@@ -37,7 +37,7 @@ export function CaseSidebar({ cases, selectedCaseId, onSelect, loading = false }
             </button>
           );
         })}
-        {!loading && cases.length === 0 ? <p className="empty-state">Create a case or seed the demo workspace.</p> : null}
+        {!loading && cases.length === 0 ? <div className="empty-state"><strong>No MRI cases yet</strong><p>Create a case using DWI, ADC, and FLAIR NIfTI volumes.</p></div> : null}
       </div>
     </section>
   );
