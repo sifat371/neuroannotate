@@ -35,9 +35,9 @@ def create_case(
     return CaseDetail.model_validate(case_to_detail(case))
 
 
-@router.get("/{case_id}", response_model=CaseRead)
+@router.get("/{case_id}", response_model=CaseDetail)
 def get_case(
     case_id: str,
     session: Session = Depends(get_session),
-) -> dict[str, object]:
-    return case_to_dict(require_case(CaseRepository(session), case_id))
+) -> CaseDetail:
+    return CaseDetail.model_validate(case_to_detail(require_case(CaseRepository(session), case_id)))

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
-import { attachLabelmap, canDisplaySegmentationOn, setOverlayOpacity, setOverlayVisible, type EditableSegmentation } from '../../cornerstone/segmentation';
-import { createViewerSession, getVolumeGeometry, type ViewerSession } from '../../cornerstone/viewer';
-import type { CaseSummary, Modality } from '../../types/api';
+import { attachLabelmap, canDisplaySegmentationOn, setOverlayOpacity, setOverlayVisible, type EditableSegmentation, type VolumeGeometry } from '../../cornerstone/segmentation';
+import { createViewerSession, type ViewerSession } from '../../cornerstone/viewer';
+import type { CaseDetail, CaseSummary, Modality } from '../../types/api';
 import { Viewport } from './Viewport';
 
 type Props = {
@@ -16,6 +16,23 @@ type Props = {
   onSegmentationChanged: (segmentation: EditableSegmentation | null) => void;
   onEditStateChange?: (dirty: boolean, editCount: number) => void;
 };
+
+function sourceGeometry(detail: CaseDetail, modality: Modality): VolumeGeometry | null {
+  if (!Array.isArray(detail?.sources)) return null;
+  const geometries = new Map<Modality, VolumeGeometry>();
+  for (const source of detail.sources) {
+    if (source?.modality !== 'DWI' && source?.modality !== 'ADC' && source?.modality !== 'FLAIR') return null;
+    if (geometries.has(source.modality)) return null;
+    geometries.set(source.modality, { shape: source.shape, affine: source.affine });
+  }
+  return geometries.get(modality) ?? null;
+}
+
+function canAttachInSourceGeometry(detail: CaseDetail, modality: Modality): boolean {
+  const source = sourceGeometry(detail, modality);
+  const dwi = sourceGeometry(detail, 'DWI');
+  return source !== null && dwi !== null && canDisplaySegmentationOn(source, dwi);
+}
 
 export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, overlayVisible, overlayOpacity, activeTool, onSegmentationChanged, onEditStateChange }: Props) {
   const axial = useRef<HTMLDivElement | null>(null);
@@ -69,17 +86,18 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     async function mountSegmentation() {
       if (!inference || !selectedCase || !sessionRef.current) return;
       const session = sessionRef.current;
-      const dwiGeometry = modality === 'DWI'
-        ? session.geometry
-        : await getVolumeGeometry(api.sourceFileUrl(selectedCase.id, 'DWI'), `${selectedCase.id}-dwi`);
-      if (cancelled || sessionRef.current !== session) return;
-      if (!canDisplaySegmentationOn(session.geometry, dwiGeometry)) {
+      const blockOverlay = () => {
         segmentationRef.current?.destroy();
         segmentationRef.current = null;
         setEditableSegmentation(null);
         revisionRequest.current += 1;
         onSegmentationChanged(null);
         setStatus('Segmentation overlay unavailable in this geometry.');
+      };
+      const detail = await api.getCase(selectedCase.id).catch(() => null);
+      if (cancelled || sessionRef.current !== session) return;
+      if (!detail || detail.id !== selectedCase.id || !canAttachInSourceGeometry(detail, modality)) {
+        blockOverlay();
         return;
       }
       segmentationRef.current?.destroy();

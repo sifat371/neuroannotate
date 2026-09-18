@@ -77,6 +77,35 @@ def test_case_creation_imports_immutable_source_triad(
         assert (settings.data_dir / expected_relative_path).read_bytes() == original.read_bytes()
 
 
+def test_case_detail_endpoint_exposes_immutable_source_geometry(
+    client,
+    sample_nifti_bytes: bytes,
+) -> None:
+    created = client.post(
+        "/api/cases",
+        data={"name": "Geometry source"},
+        files={
+            modality: (f"{modality}.nii.gz", sample_nifti_bytes, "application/gzip")
+            for modality in ("dwi", "adc", "flair")
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    detail = client.get(f"/api/cases/{created.json()['id']}")
+
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["annotation_space"] == "DWI"
+    assert [source["modality"] for source in body["sources"]] == ["ADC", "DWI", "FLAIR"]
+    assert body["sources"][1]["shape"] == [6, 7, 8]
+    assert body["sources"][1]["affine"] == [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+
 def test_case_creation_rolls_back_if_flair_is_invalid(
     client,
     sample_nifti_bytes: bytes,

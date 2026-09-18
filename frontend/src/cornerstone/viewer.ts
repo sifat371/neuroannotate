@@ -8,7 +8,6 @@ import {
 import * as cornerstoneTools from '@cornerstonejs/tools';
 import { createNiftiImageIdsAndCacheMetadata } from '@cornerstonejs/nifti-volume-loader';
 import { initializeCornerstone } from './init';
-import type { VolumeGeometry } from './segmentation';
 import { waitForVolumeLoad } from './volumeLoading';
 
 const { PanTool, ZoomTool, WindowLevelTool, StackScrollTool, ToolGroupManager, Enums: ToolEnums } = cornerstoneTools;
@@ -27,45 +26,11 @@ export type ViewerSession = {
   renderingEngineId: string;
   toolGroupId: string;
   renderingEngine: RenderingEngine;
-  geometry: VolumeGeometry;
   setPrimaryTool: (toolName: string | null) => void;
   destroy: () => void;
 };
 
 type Elements = Record<ViewportId, HTMLDivElement>;
-
-type LoadedVolumeGeometry = {
-  dimensions: [number, number, number];
-  spacing: [number, number, number];
-  origin: [number, number, number];
-  direction: ArrayLike<number>;
-};
-
-function geometryFromVolume(volume: LoadedVolumeGeometry): VolumeGeometry {
-  const { dimensions, spacing, origin, direction } = volume;
-  if (direction.length !== 9) throw new Error('Source volume has invalid geometry.');
-  return {
-    shape: [...dimensions],
-    affine: [
-      [direction[0] * spacing[0], direction[3] * spacing[1], direction[6] * spacing[2], origin[0]],
-      [direction[1] * spacing[0], direction[4] * spacing[1], direction[7] * spacing[2], origin[1]],
-      [direction[2] * spacing[0], direction[5] * spacing[1], direction[8] * spacing[2], origin[2]],
-      [0, 0, 0, 1],
-    ],
-  };
-}
-
-export async function getVolumeGeometry(modalityUrl: string, key: string): Promise<VolumeGeometry> {
-  const volumeId = `cornerstoneStreamingImageVolume:geometry-${key}-${crypto.randomUUID()}`;
-  const imageIds = await createNiftiImageIdsAndCacheMetadata({ url: modalityUrl });
-  const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
-  try {
-    await waitForVolumeLoad(volume);
-    return geometryFromVolume(volume);
-  } finally {
-    cache.removeVolumeLoadObject(volumeId);
-  }
-}
 
 function registerTools() {
   if (toolsRegistered) return;
@@ -93,7 +58,6 @@ export async function createViewerSession({
   const imageIds = await createNiftiImageIdsAndCacheMetadata({ url: modalityUrl });
   const volume = await volumeLoader.createAndCacheVolume(sourceVolumeId, { imageIds });
   await waitForVolumeLoad(volume);
-  const geometry = geometryFromVolume(volume);
 
   const renderingEngine = new RenderingEngine(renderingEngineId);
   renderingEngine.setViewports([
@@ -130,7 +94,6 @@ export async function createViewerSession({
     renderingEngineId,
     toolGroupId,
     renderingEngine,
-    geometry,
     setPrimaryTool,
     destroy() {
       ToolGroupManager.destroyToolGroup(toolGroupId);

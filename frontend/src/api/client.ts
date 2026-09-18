@@ -162,7 +162,7 @@ export function createExport(caseId: string, revisionId: string): Promise<Export
 
 export const api = {
   listCases: () => request<CaseSummary[]>('/api/cases'),
-  getCase: (caseId: string) => request<CaseSummary>(`/api/cases/${caseId}`),
+  getCase: (caseId: string) => request<CaseDetail>(`/api/cases/${caseId}`),
   createCase,
   createInferenceJob,
   listInferenceJobs,
