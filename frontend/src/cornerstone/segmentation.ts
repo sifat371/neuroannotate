@@ -18,12 +18,14 @@ export type EditableSegmentation = {
   visible: boolean;
   opacity: number;
   dirty: boolean;
+  editCount: number;
   setEditingTool: (tool: 'brush' | 'erase' | 'pan' | 'zoom' | 'windowLevel') => void;
+  setBrushSize: (size: number) => void;
   undo: () => void;
   redo: () => void;
   getCurrentLabelmap: () => SerializedLabelmap;
   markSaved: () => void;
-  replaceFromNifti: (url: string) => Promise<void>;
+  replaceFromNifti: (url: string, shouldApply?: () => boolean) => Promise<boolean>;
   destroy: () => void;
 };
 
@@ -64,7 +66,7 @@ export async function attachLabelmap(
   session: ViewerSession,
   niftiUrl: string,
   sourceInferenceId: string,
-  onDirtyChange?: (dirty: boolean) => void,
+  onEditStateChange?: (dirty: boolean, editCount: number) => void,
 ): Promise<EditableSegmentation> {
   ensureBrushRegistered();
   const segmentationId = `seg-${sourceInferenceId}-${crypto.randomUUID()}`;
@@ -95,12 +97,13 @@ export async function attachLabelmap(
   group.setToolPassive(brushName);
   group.setToolPassive(eraserName);
   let dirty = false;
+  let editCount = 0;
   let visible = true;
   let opacity = 0.55;
 
   const dataModified = (event: Event) => {
     const detail = (event as CustomEvent<{ segmentationId?: string }>).detail;
-    if (detail?.segmentationId === segmentationId) { dirty = true; onDirtyChange?.(true); }
+    if (detail?.segmentationId === segmentationId) { dirty = true; editCount += 1; onEditStateChange?.(true, editCount); }
   };
   eventTarget.addEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);
 
@@ -111,6 +114,7 @@ export async function attachLabelmap(
     get visible() { return visible; },
     get opacity() { return opacity; },
     get dirty() { return dirty; },
+    get editCount() { return editCount; },
     setEditingTool(tool) {
       group.setToolPassive(brushName);
       group.setToolPassive(eraserName);
@@ -126,13 +130,18 @@ export async function attachLabelmap(
         session.setPrimaryTool(map[tool]);
       }
     },
+    setBrushSize(size) {
+      const brushSize = Math.max(1, Math.min(40, Math.round(size)));
+      group.setToolConfiguration(brushName, { brushSize });
+      group.setToolConfiguration(eraserName, { brushSize });
+    },
     undo() {
       DefaultHistoryMemo.undo();
-      dirty = true; onDirtyChange?.(true);
+      dirty = true; editCount += 1; onEditStateChange?.(true, editCount);
     },
     redo() {
       DefaultHistoryMemo.redo();
-      dirty = true; onDirtyChange?.(true);
+      dirty = true; editCount += 1; onEditStateChange?.(true, editCount);
     },
     getCurrentLabelmap() {
       const volume = cache.getVolume(volumeId);
@@ -142,13 +151,15 @@ export async function attachLabelmap(
       }
       return serializeLabelmap(voxelManager.getCompleteScalarDataArray(), volume.dimensions);
     },
-    markSaved() { dirty = false; onDirtyChange?.(false); },
-    async replaceFromNifti(url) {
+    markSaved() { dirty = false; editCount = 0; onEditStateChange?.(false, editCount); },
+    async replaceFromNifti(url, shouldApply = () => true) {
       const replacement = await loadMaskData(url, segmentationId);
+      if (!shouldApply()) return false;
       copyIntoLabelmap(volumeId, replacement);
       segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
-      dirty = false; onDirtyChange?.(false);
+      dirty = false; editCount = 0; onEditStateChange?.(false, editCount);
       session.renderingEngine.render();
+      return true;
     },
     destroy() {
       eventTarget.removeEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);

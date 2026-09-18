@@ -14,24 +14,26 @@ type Props = {
   overlayOpacity: number;
   activeTool: 'brush' | 'erase' | 'pan' | 'zoom' | 'windowLevel';
   onSegmentationChanged: (segmentation: EditableSegmentation | null) => void;
-  onDirtyChange?: (dirty: boolean) => void;
+  onEditStateChange?: (dirty: boolean, editCount: number) => void;
 };
 
-export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, overlayVisible, overlayOpacity, activeTool, onSegmentationChanged, onDirtyChange }: Props) {
+export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, overlayVisible, overlayOpacity, activeTool, onSegmentationChanged, onEditStateChange }: Props) {
   const axial = useRef<HTMLDivElement | null>(null);
   const sagittal = useRef<HTMLDivElement | null>(null);
   const coronal = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef<ViewerSession | null>(null);
   const segmentationRef = useRef<EditableSegmentation | null>(null);
+  const revisionRequest = useRef(0);
   const [status, setStatus] = useState('Select a case with an uploaded volume.');
   const [sessionVersion, setSessionVersion] = useState(0);
+  const [editableSegmentation, setEditableSegmentation] = useState<EditableSegmentation | null>(null);
   const hasVolume = selectedCase?.modalities.includes(modality) ?? false;
   const modalityUrl = useMemo(() => selectedCase && hasVolume ? api.sourceFileUrl(selectedCase.id, modality) : null, [selectedCase, modality, hasVolume]);
 
   useEffect(() => {
     let cancelled = false;
     async function mount() {
-      segmentationRef.current?.destroy(); segmentationRef.current = null; onSegmentationChanged(null);
+      segmentationRef.current?.destroy(); segmentationRef.current = null; setEditableSegmentation(null); revisionRequest.current += 1; onSegmentationChanged(null);
       sessionRef.current?.destroy(); sessionRef.current = null;
       setSessionVersion((value) => value + 1);
       if (!selectedCase || !modalityUrl || !axial.current || !sagittal.current || !coronal.current) {
@@ -67,9 +69,10 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
     async function mountSegmentation() {
       if (!inference || !selectedCase || !sessionRef.current) return;
       segmentationRef.current?.destroy();
-      const seg = await attachLabelmap(sessionRef.current, api.segmentationFileUrl(inference.segmentationId), inference.sourceInferenceId, onDirtyChange);
+      const seg = await attachLabelmap(sessionRef.current, api.segmentationFileUrl(inference.segmentationId), inference.sourceInferenceId, onEditStateChange);
       if (cancelled) { seg.destroy(); return; }
       segmentationRef.current = seg;
+      setEditableSegmentation(seg);
       setOverlayVisible(seg, overlayVisible);
       setOverlayOpacity(seg, overlayOpacity);
       seg.setEditingTool(activeTool);
@@ -94,9 +97,15 @@ export function ViewerGrid({ selectedCase, modality, inference, revisionUrl, ove
   useEffect(() => { segmentationRef.current?.setEditingTool(activeTool); }, [activeTool]);
 
   useEffect(() => {
-    if (!revisionUrl || !segmentationRef.current) return;
-    void segmentationRef.current.replaceFromNifti(revisionUrl).catch((error) => setStatus(error instanceof Error ? error.message : 'Could not load revision.'));
-  }, [revisionUrl]);
+    const requestId = revisionRequest.current + 1;
+    revisionRequest.current = requestId;
+    if (!revisionUrl || !editableSegmentation) return;
+    void editableSegmentation.replaceFromNifti(
+      revisionUrl,
+      () => revisionRequest.current === requestId && segmentationRef.current === editableSegmentation,
+    ).catch((error) => setStatus(error instanceof Error ? error.message : 'Could not load revision.'));
+    return () => { if (revisionRequest.current === requestId) revisionRequest.current += 1; };
+  }, [revisionUrl, editableSegmentation]);
 
   return (
     <section className="viewer-panel">

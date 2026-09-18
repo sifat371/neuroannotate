@@ -10,10 +10,10 @@ vi.mock('../src/api/client', async () => {
 });
 
 const segmentation = {
-  segmentationId: 'seg-ui', volumeId: 'vol-ui', sourceInferenceId: 'job-1', visible: true, opacity: .55, dirty: true,
-  setEditingTool: () => undefined, undo: () => undefined, redo: () => undefined,
+  segmentationId: 'seg-ui', volumeId: 'vol-ui', sourceInferenceId: 'job-1', visible: true, opacity: .55, dirty: true, editCount: 1,
+  setEditingTool: () => undefined, setBrushSize: () => undefined, undo: () => undefined, redo: () => undefined,
   getCurrentLabelmap: () => ({ shape: [1, 1, 1] as [number, number, number], voxels: new Uint8Array([1]) }),
-  markSaved: vi.fn(), replaceFromNifti: async () => undefined, destroy: () => undefined,
+  markSaved: vi.fn(), replaceFromNifti: async () => true, destroy: () => undefined,
 };
 const revision = {
   id: 'rev-1', case_id: 'c1', source_inference_id: 'job-1', source_segmentation_id: 'seg-1', parent_revision_id: null,
