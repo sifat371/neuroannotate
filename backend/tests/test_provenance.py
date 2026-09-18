@@ -1,8 +1,11 @@
 import json
+import os
+import time
 from datetime import UTC, datetime
 
 import pytest
 
+from app.core.errors import ApiError
 from app.db.models import (
     AnnotationRevision,
     Case,
@@ -11,7 +14,7 @@ from app.db.models import (
     SegmentationArtifact,
     SourceArtifact,
 )
-from app.services.provenance import build_provenance
+from app.services.provenance import _timestamp, build_provenance, validate_provenance
 
 
 def _source(modality: str) -> SourceArtifact:
@@ -109,3 +112,39 @@ def test_provenance_is_portable_and_has_required_sections(provenance: dict[str, 
     assert "/home/" not in text
     assert "original_filename" not in text
     assert "patient-name.nii.gz" not in text
+
+
+@pytest.mark.parametrize(
+    "leak",
+    [
+        {"nested": {"original_filename": "patient-name.nii.gz"}},
+        {"nested": {"working_directory": "/home/researcher/private"}},
+    ],
+)
+def test_provenance_rejects_nested_portability_leaks(
+    provenance: dict[str, object], leak: dict[str, object]
+) -> None:
+    """Passing nested private metadata through configuration would disclose it."""
+    provenance["ai_segmentation"]["runtime"] = {"device": "cuda:0", **leak}
+
+    with pytest.raises(ApiError) as raised:
+        validate_provenance(provenance)
+
+    assert raised.value.code == "invalid_provenance"
+
+
+def test_naive_persisted_timestamp_is_interpreted_as_utc_under_non_utc_process_timezone() -> None:
+    """Using local timezone conversion would shift naive SQLite timestamps."""
+    previous_timezone = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Dhaka"
+    time.tzset()
+    try:
+        rendered = _timestamp(datetime(2026, 9, 18, 12, 30), "test timestamp")
+    finally:
+        if previous_timezone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_timezone
+        time.tzset()
+
+    assert rendered == "2026-09-18T12:30:00Z"

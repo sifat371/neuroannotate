@@ -2,13 +2,20 @@ import hashlib
 import io
 import json
 import zipfile
+from queue import Queue
+from threading import Event, Thread
 
 import numpy as np
 from sqlalchemy import select
 
-from app.db.models import ExportArtifact, SourceArtifact
+from app.core.config import settings
+from app.core.errors import ApiError
+from app.db.models import AnnotationRevision, ExportArtifact, SourceArtifact
 from app.db.session import new_session
+from app.services import exports as exports_module
+from app.services.exports import create_export
 from app.services.inference.worker import InferenceWorker
+from app.services.storage import Storage
 from tests.helpers import import_case
 
 
@@ -116,3 +123,68 @@ def test_export_rejects_a_revision_from_another_case(client, tmp_path) -> None:
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "revision_not_found"
+
+
+def test_export_rejects_missing_lineage_parent_without_publishing(client, tmp_path) -> None:
+    """Silently ending ancestry at a missing parent would create false provenance."""
+    case_id, revision_id = _completed_revision(client, tmp_path)
+    with new_session() as session:
+        revision = session.get(AnnotationRevision, revision_id)
+        assert revision is not None
+        revision.parent_revision_id = "missing-parent"
+        session.commit()
+
+    response = client.post(f"/api/cases/{case_id}/exports", json={"revision_id": revision_id})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "invalid_revision_lineage"
+    with new_session() as session:
+        assert session.scalar(select(ExportArtifact)) is None
+
+
+def test_export_never_replaces_destination_created_during_publication(
+    client, tmp_path, monkeypatch
+) -> None:
+    """Replacing a directory that appears after preparation would destroy another snapshot."""
+    case_id, revision_id = _completed_revision(client, tmp_path)
+    export_id = "race-export"
+    monkeypatch.setattr(exports_module, "new_uuid", lambda: export_id)
+    original_copyfile = exports_module.shutil.copyfile
+    copy_started = Event()
+    continue_export = Event()
+
+    def pause_after_copy(source, destination):
+        copied = original_copyfile(source, destination)
+        copy_started.set()
+        assert continue_export.wait(timeout=3)
+        return copied
+
+    monkeypatch.setattr(exports_module.shutil, "copyfile", pause_after_copy)
+    outcome: Queue[Exception | None] = Queue()
+
+    def create_in_thread() -> None:
+        try:
+            with new_session() as session:
+                create_export(session, Storage(settings.data_dir), case_id, revision_id)
+        except Exception as exc:  # The thread communicates the service boundary result.
+            outcome.put(exc)
+        else:
+            outcome.put(None)
+
+    worker = Thread(target=create_in_thread)
+    worker.start()
+    assert copy_started.wait(timeout=3)
+    destination = settings.data_dir / "exports" / export_id
+    destination.mkdir()
+    sentinel = destination / "existing-snapshot"
+    sentinel.write_bytes(b"preserve me")
+    continue_export.set()
+    worker.join(timeout=3)
+
+    error = outcome.get_nowait()
+    assert isinstance(error, ApiError)
+    assert error.code == "export_path_exists"
+    assert sentinel.read_bytes() == b"preserve me"
+    assert set(path.name for path in destination.iterdir()) == {"existing-snapshot"}
+    with new_session() as session:
+        assert session.scalar(select(ExportArtifact)) is None

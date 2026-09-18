@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
 import shutil
 import subprocess
@@ -26,6 +28,40 @@ from app.db.models import (
 from app.services.checksums import sha256_file
 from app.services.provenance import build_provenance, serialize_provenance, validate_provenance
 from app.services.storage import Storage
+
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+
+
+def _publish_without_overwrite(source: Path, destination: Path) -> None:
+    """Atomically publish a directory only when no destination already exists."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        renameat2 = libc.renameat2
+    except AttributeError as exc:
+        raise ApiError(
+            503, "atomic_publish_unsupported", "Atomic no-replace export publication is unavailable"
+        ) from exc
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    if renameat2(
+        _AT_FDCWD,
+        os.fsencode(source),
+        _AT_FDCWD,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    ) == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise ApiError(409, "export_path_exists", "Export artifact already exists")
+    raise OSError(error_number, os.strerror(error_number), destination)
 
 
 def _software_identity() -> dict[str, object]:
@@ -62,11 +98,12 @@ def _lineage(session: Session, revision: AnnotationRevision) -> list[str]:
             raise ApiError(409, "invalid_revision_lineage", "Revision lineage is invalid")
         seen.add(current.id)
         result.append(current.id)
-        current = (
-            session.get(AnnotationRevision, current.parent_revision_id)
-            if current.parent_revision_id is not None
-            else None
-        )
+        if current.parent_revision_id is None:
+            current = None
+            continue
+        current = session.get(AnnotationRevision, current.parent_revision_id)
+        if current is None:
+            raise ApiError(409, "invalid_revision_lineage", "Revision lineage is invalid")
     result.reverse()
     return result
 
@@ -154,7 +191,7 @@ def create_export(
             temporary_provenance = temporary_dir / "provenance.json.tmp"
             temporary_provenance.write_bytes(serialize_provenance(document))
             os.replace(temporary_provenance, temporary_dir / "provenance.json")
-            os.rename(temporary_dir, output_dir)
+            _publish_without_overwrite(temporary_dir, output_dir)
             published = True
         session.add(export)
         session.commit()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -27,10 +27,34 @@ _SCHEMA_PATH = (
 _DISCLAIMER = "Research software only. Not for diagnosis or clinical decision-making."
 
 
+def _assert_portable(value: object) -> None:
+    """Reject nested identifiers or values that can disclose host-local information."""
+    if isinstance(value, dict):
+        for key, nested_value in value.items():
+            if key.lower() == "original_filename":
+                raise ApiError(
+                    409,
+                    "invalid_provenance",
+                    "Portable provenance cannot include original filenames",
+                )
+            _assert_portable(nested_value)
+    elif isinstance(value, list):
+        for nested_value in value:
+            _assert_portable(nested_value)
+    elif isinstance(value, str) and (
+        value.startswith("/") or PureWindowsPath(value).is_absolute()
+    ):
+        raise ApiError(
+            409, "invalid_provenance", "Portable provenance cannot include absolute paths"
+        )
+
+
 def _timestamp(value: datetime | None, field: str) -> str:
     """Return a canonical UTC timestamp or reject missing export metadata."""
     if value is None:
         raise ApiError(409, "incomplete_provenance", f"Missing {field} metadata")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
@@ -182,6 +206,7 @@ def build_provenance(
 
 def validate_provenance(document: dict[str, object]) -> None:
     """Validate a document against the committed v1 portable schema."""
+    _assert_portable(document)
     schema = _json_object(_SCHEMA_PATH.read_text(encoding="utf-8"), "provenance schema")
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
     errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
