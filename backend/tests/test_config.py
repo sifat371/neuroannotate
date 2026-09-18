@@ -19,7 +19,9 @@ def test_max_upload_mb_accepts_values_within_operational_range(monkeypatch, valu
     assert Settings(_env_file=None).max_upload_mb == int(value)
 
 
-def test_max_upload_mb_default_is_512_mebibytes():
+def test_max_upload_mb_default_is_512_mebibytes(monkeypatch):
+    monkeypatch.delenv("NEUROANNOTATE_MAX_UPLOAD_MB", raising=False)
+
     assert Settings(_env_file=None).max_upload_mb == 512
 
 
