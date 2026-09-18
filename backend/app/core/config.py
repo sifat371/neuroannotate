@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     database_url: str = "sqlite:///./neuroannotate.db"
     inference_provider: str = "demo"
+    deepisles_url: str | None = None
     max_upload_mb: int = 512
     frontend_origin: str = "http://localhost:5173"
     sample_data_dir: Path = Path("../sample_data")

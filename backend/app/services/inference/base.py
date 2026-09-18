@@ -33,6 +33,14 @@ class ProviderOutputPersistenceError(Exception):
     """Raised when a provider cannot write its output artifact."""
 
 
+class ProviderUnavailableError(Exception):
+    """Raised when the configured provider cannot be reached."""
+
+
+class ProviderRuntimeError(Exception):
+    """Raised when a provider returns an invalid or failed result."""
+
+
 class SegmentationProvider(Protocol):
     name: str
     def info(self) -> ProviderInfo: ...

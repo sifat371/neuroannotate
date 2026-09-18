@@ -1,10 +1,11 @@
 from app.core.config import settings
 from app.core.errors import ApiError
 from app.services.inference.base import SegmentationProvider
+from app.services.inference.deepisles import DeepISLESProvider
 from app.services.inference.demo import DemoSegmentationProvider
 from app.services.inference.nnunet import NNUNetProvider
 
-PROVIDER_NAMES = ("demo", "nnunet")
+PROVIDER_NAMES = ("demo", "nnunet", "deepisles")
 
 
 def get_provider(name: str | None = None) -> SegmentationProvider:
@@ -13,9 +14,12 @@ def get_provider(name: str | None = None) -> SegmentationProvider:
         return DemoSegmentationProvider()
     if name == "nnunet":
         return NNUNetProvider()
+    if name == "deepisles":
+        return DeepISLESProvider(settings.deepisles_url)
     raise ApiError(500, "unknown_provider", "Configured segmentation provider is unknown")
 
 
 def list_providers() -> list[SegmentationProvider]:
     """Return each configured provider in stable display order."""
-    return [get_provider(name) for name in PROVIDER_NAMES]
+    names = PROVIDER_NAMES if settings.deepisles_url else PROVIDER_NAMES[:-1]
+    return [get_provider(name) for name in names]
