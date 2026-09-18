@@ -15,18 +15,6 @@ export function CaseUploadPanel({ selectedCase, onCaseChanged, onCaseCreated }: 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function createCase() {
-    if (!name.trim()) return;
-    setBusy('create'); setError(null);
-    try {
-      const item = await api.createCase(name.trim());
-      setName('');
-      onCaseCreated(item);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create case.');
-    } finally { setBusy(null); }
-  }
-
   async function upload(modality: Modality, file: File) {
     if (!selectedCase) return;
     setBusy(modality); setError(null);
@@ -42,7 +30,7 @@ export function CaseUploadPanel({ selectedCase, onCaseChanged, onCaseCreated }: 
       <div className="panel-heading"><div><p className="eyebrow">Data</p><h2>Import NIfTI</h2></div></div>
       <div className="create-row">
         <input aria-label="New case name" value={name} onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)} placeholder="New case name" />
-        <button type="button" className="secondary-button" onClick={createCase} disabled={!name.trim() || busy === 'create'}>Create</button>
+        <button type="button" className="secondary-button" disabled>Import all three files together</button>
       </div>
       {MODALITIES.map((modality) => {
         const present = selectedCase?.modalities.includes(modality) ?? false;

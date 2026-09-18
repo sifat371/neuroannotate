@@ -57,7 +57,7 @@ export default function App() {
         <section className="center-stage">
           <div className="viewer-controls">
             <div className="modality-tabs" role="group" aria-label="MRI modality">
-              {modalities.map((modality) => <button type="button" key={modality} className={workspace.activeModality === modality ? 'active' : ''} disabled={!selectedCase?.modalities.includes(modality)} onClick={() => workspace.setActiveModality(modality)}>{modality}</button>)}
+              {modalities.map((modality) => <button type="button" key={modality} className={workspace.selectedModality === modality ? 'active' : ''} disabled={!selectedCase?.modalities.includes(modality)} onClick={() => workspace.setSelectedModality(modality)}>{modality}</button>)}
             </div>
             <div className="overlay-controls">
               <label><input type="checkbox" checked={workspace.overlayVisible} disabled={!segmentation} onChange={(event: ChangeEvent<HTMLInputElement>) => workspace.setOverlayVisible(event.target.checked)} /> Overlay</label>
@@ -65,11 +65,11 @@ export default function App() {
             </div>
           </div>
           <AnnotationToolbar segmentation={segmentation} activeTool={workspace.activeTool} onToolChange={workspace.setActiveTool} />
-          <ViewerGrid selectedCase={selectedCase} modality={workspace.activeModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} />
+          <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} />
         </section>
         <aside className="right-rail">
-          <InferenceControls selectedCase={selectedCase} onSegmentationReady={(run) => { setInference(run); workspace.setSelectedRevisionId(null); setRevisionUrl(null); }} />
-          <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.id ?? null} segmentation={segmentation} selectedRevisionId={workspace.selectedRevisionId} onSelectedRevisionId={workspace.setSelectedRevisionId} onLoadRevision={setRevisionUrl} />
+          <InferenceControls selectedCase={selectedCase} onSegmentationReady={(run) => { setInference(run); workspace.loadSegmentation(null); setRevisionUrl(null); }} />
+          <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.id ?? null} segmentation={segmentation} selectedRevisionId={workspace.loadedRevisionId} onSelectedRevisionId={workspace.loadRevision} onLoadRevision={setRevisionUrl} />
           <section className="panel shortcut-panel"><p className="eyebrow">Shortcuts</p><div><kbd>⌘/Ctrl Z</kbd><span>Undo</span></div><div><kbd>⇧ ⌘/Ctrl Z</kbd><span>Redo</span></div><div><kbd>Wheel</kbd><span>Change slice</span></div></section>
         </aside>
       </main>
