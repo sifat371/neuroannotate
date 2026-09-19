@@ -83,7 +83,8 @@ export interface SystemHealth {
   storage?: 'ok' | 'unavailable';
   database?: 'ok' | 'unavailable';
   inference?: {
-    mode: 'demo' | 'gpu' | 'unknown';
+    mode: 'demo' | 'gpu' | 'legacy' | 'unknown';
+    provider?: 'nnunet' | 'unknown';
     deepisles: 'ready' | 'not_enabled' | 'unavailable';
     ready: boolean;
     service?: string;

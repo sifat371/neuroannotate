@@ -80,3 +80,104 @@ Real GPU/DeepISLES validation was **not run**. No
 `NEUROANNOTATE_GPU_TEST_CASE` licensed local triad was provided, and this task
 did not start the GPU profile, download weights, build a GPU image, or execute
 the model.
+
+## Fix round 1
+
+### Review-finding mapping
+
+1. The validator now retries the actual `/v1/info` payload until it reports the
+   pinned commit, CUDA, a non-empty device, and `ready: true`. The helper
+   deadline also bounds every info request and sleep during first-boot weight
+   population. Sourced helpers initialize their own repository path.
+2. Job polling now uses a `SECONDS` wall-clock deadline of exactly 1800 seconds.
+   Each curl timeout and sleep is capped to the remaining time; transient curl
+   failures are retried within that same deadline instead of terminating under
+   `set -e`.
+3. Failed-job Retry is disabled when configured inference is unavailable, and
+   the handler has the same guard so programmatic invocation cannot bypass the
+   disabled state.
+4. Database health uses one daemon worker, waits at most 50 ms per request,
+   caches completed results briefly, and never queues additional workers while
+   a driver call is stalled. Unexpected worker exceptions publish an
+   unavailable result and release the in-flight state.
+5. Health reports configured `nnunet` as explicit legacy mode and reserves
+   unknown mode for unrecognized configuration. Neither mode is presented as
+   demo or available in inference controls.
+6. Regression coverage now exercises readiness retry/deadline behavior,
+   transient polling failures, total wall-clock expiration, disabled Retry,
+   legacy versus unknown modes, bounded database waiting, and database worker
+   recovery.
+
+### TDD and mutation evidence
+
+The interrupted implementer's original RED output was lost when its external
+quota ended, so no RED is claimed for changes already present at takeover.
+Their existing fixes were instead checked by mutation: bypassing readiness
+validation made the helper accept unready info; removing bounded sleeping broke
+the deadline assertion; removing Retry's disabled state failed the UI test;
+collapsing `nnunet` into unknown failed the health contract; and removing the
+database wait timeout failed the bounded-return test.
+
+The takeover audit found four still-missing corrections and captured genuine
+RED before production edits:
+
+- the database recovery test failed because `RuntimeError` killed the worker
+  and left the next probe false, with an unhandled-thread warning;
+- the legacy/unknown UI cases failed because both still rendered demo copy;
+- the sourced helper suite exited 127 on an unbound `repo_dir`;
+- after repository initialization was fixed, a traced helper run exited at the
+  first failed `fetch_job_status` command substitution under `set -e`.
+
+After the minimal fixes, focused GREEN was 9/9 backend health tests, 15/15
+inference/status frontend tests, and a passing validator helper suite plus shell
+syntax checks.
+
+### Files changed in the fix
+
+- `backend/app/api/routes/health.py`
+- `backend/tests/test_health.py`
+- `frontend/src/features/inference/InferenceControls.tsx`
+- `frontend/src/types/api.ts`
+- `frontend/tests/InferenceControls.test.tsx`
+- `scripts/validate_gpu.sh`
+- `scripts/tests/test_validate_gpu_helpers.sh`
+
+### Verification
+
+- `cd backend && ../.venv/bin/pytest tests/test_health.py -v` — 9 passed.
+- `cd backend && ../.venv/bin/pytest -q` — 106 passed with the same two
+  dependency deprecation warnings.
+- `cd backend && ../.venv/bin/ruff check app tests` — passed.
+- `cd frontend && npm test -- --run` — 50 passed.
+- `cd frontend && npm run lint` — passed.
+- `cd frontend && npm run build` — passed with the existing Vite direct-eval
+  and chunk-size warnings.
+- `.venv/bin/pytest inference-service/tests/test_api_contract.py -v` — 9
+  passed with the same two dependency deprecation warnings.
+- `.venv/bin/ruff check inference-service/app inference-service/tests` —
+  passed.
+- `bash scripts/tests/test_validate_gpu_helpers.sh` — passed.
+- `bash -n` for the validator, helper test, and weight-fetch script — passed.
+- Default and GPU-profile Compose config rendering — passed. JSON assertions
+  confirmed default services are only backend/frontend with demo mode, while
+  GPU config has the private unported service, named `/models` cache, NVIDIA
+  reservation, and private backend URL.
+- Validator no-input preflight exited 2 with the licensed-triad requirement
+  before any Docker action, as intended.
+- `git diff --check` — passed.
+
+One service-suite invocation initially used `../.venv` from the repository root
+and failed to find pytest; the corrected `.venv/bin/pytest` command above
+passed. One custom Compose JSON assertion initially assumed an optional
+`nocopy` key; the corrected semantic assertion above passed against the
+rendered schema.
+
+### Self-review and residual limits
+
+The database driver call itself cannot be force-cancelled safely, but only one
+daemon probe may remain blocked and every health request returns within its
+50 ms wait bound. The validator helper tests use controlled fake service/job
+responses and one real 1.1-second elapsed-time check; no real container, model,
+weight download, or clinical data was used. The real GPU validation status
+therefore remains unchanged: not run because no licensed test triad was
+provided.

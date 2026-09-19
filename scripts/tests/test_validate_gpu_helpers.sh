@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test_repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+validator_path="${test_repo_dir}/scripts/validate_gpu.sh"
+unset repo_dir
+VALIDATE_GPU_SOURCE_ONLY=1 source "$validator_path"
+
+ready_info='{"upstream_commit":"7658b608fc0d890cf14448ff3e58c47ad5c761e7","cuda_available":true,"device":"cuda:0","ready":true}'
+invalid_info='{"upstream_commit":"wrong","cuda_available":false,"device":"","ready":false}'
+printf '%s' "$ready_info" | deepisles_info_ready
+if printf '%s' "$invalid_info" | deepisles_info_ready; then
+    echo "invalid DeepISLES info was accepted" >&2
+    exit 1
+fi
+
+temporary_log="$(mktemp)"
+cleanup_test() { rm -f -- "$temporary_log"; }
+trap cleanup_test EXIT
+fetch_service_info() { printf '%s' "$invalid_info"; }
+sleep() { printf '%s\n' "$1" >>"$temporary_log"; SECONDS=$((SECONDS + $1)); }
+SECONDS=0
+if wait_for_deepisles_info 5 2>/dev/null; then
+    echo "unready service unexpectedly passed validation" >&2
+    exit 1
+fi
+test "$(tr '\n' ' ' <"$temporary_log")" = "3 2 "
+
+: >"$temporary_log"
+attempt_file="$(mktemp)"
+cleanup_attempt() { rm -f -- "$attempt_file"; }
+trap 'cleanup_test; cleanup_attempt' EXIT
+printf '0\n' >"$attempt_file"
+fetch_service_info() {
+    attempt="$(cat "$attempt_file")"
+    attempt=$((attempt + 1))
+    printf '%s\n' "$attempt" >"$attempt_file"
+    if ((attempt == 1)); then
+        printf '%s' "$invalid_info"
+    else
+        printf '%s' "$ready_info"
+    fi
+}
+SECONDS=0
+wait_for_deepisles_info 10
+test "$(cat "$attempt_file")" = "2"
+test "$(tr '\n' ' ' <"$temporary_log")" = "3 "
+
+: >"$temporary_log"
+fetch_job_status() { printf 'queued\n'; }
+SECONDS=0
+if wait_for_completed_job ignored 4 2>/dev/null; then
+    echo "queued job unexpectedly completed" >&2
+    exit 1
+fi
+test "$(tr '\n' ' ' <"$temporary_log")" = "4 "
+
+: >"$temporary_log"
+printf '0\n' >"$attempt_file"
+fetch_job_status() {
+    attempt="$(cat "$attempt_file")"
+    attempt=$((attempt + 1))
+    printf '%s\n' "$attempt" >"$attempt_file"
+    if ((attempt == 1)); then
+        return 1
+    fi
+    printf 'completed\n'
+}
+SECONDS=0
+wait_for_completed_job ignored 10
+test "$(cat "$attempt_file")" = "2"
+test "$(tr '\n' ' ' <"$temporary_log")" = "5 "
+
+: >"$temporary_log"
+printf '0\n' >"$attempt_file"
+fetch_job_status() {
+    attempt="$(cat "$attempt_file")"
+    attempt=$((attempt + 1))
+    printf '%s\n' "$attempt" >"$attempt_file"
+    command sleep 1.1
+    printf 'queued\n'
+}
+SECONDS=0
+if wait_for_completed_job ignored 1 2>/dev/null; then
+    echo "queued job unexpectedly completed after its wall-clock deadline" >&2
+    exit 1
+fi
+test "$(cat "$attempt_file")" = "1"
+test ! -s "$temporary_log"

@@ -93,4 +93,50 @@ describe('InferenceControls', () => {
     expect(screen.getByRole('button', { name: 'Run AI Segmentation' })).toBeDisabled();
     expect(screen.getByText(/GPU provider is unavailable/i)).toBeInTheDocument();
   });
+
+  test('blocks a failed GPU retry while its provider is unavailable', async () => {
+    render(<InferenceControls
+      selectedCase={ready}
+      job={{ ...job('failed'), provider: 'deepisles' }}
+      onJobChange={() => undefined}
+      health={{
+        status: 'ok', service: 'neuroannotate-api', storage: 'ok', database: 'ok',
+        inference: { mode: 'gpu', deepisles: 'unavailable', ready: false },
+      }}
+    />);
+    const retry = screen.getByRole('button', { name: /retry inference/i });
+    expect(retry).toBeDisabled();
+    await userEvent.click(retry);
+    expect(api.retryInferenceJob).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    {
+      mode: 'legacy' as const,
+      provider: 'nnunet' as const,
+      description: /legacy nnU-Net provider is unavailable/i,
+      disclaimer: /legacy nnU-Net provider — research software only/i,
+    },
+    {
+      mode: 'unknown' as const,
+      provider: 'unknown' as const,
+      description: /configured inference provider is unrecognized/i,
+      disclaimer: /unavailable provider — research software only/i,
+    },
+  ])('does not submit an unavailable $mode configured provider', ({ mode, provider, description, disclaimer }) => {
+    render(<InferenceControls
+      selectedCase={ready}
+      job={null}
+      onJobChange={() => undefined}
+      health={{
+        status: 'ok', service: 'neuroannotate-api', storage: 'ok', database: 'ok',
+        inference: { mode, deepisles: 'not_enabled', ready: false, provider },
+      }}
+    />);
+    expect(screen.getByRole('button', { name: 'Run AI Segmentation' })).toBeDisabled();
+    expect(screen.getByText(/configured inference provider is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(description)).toBeInTheDocument();
+    expect(screen.getByText(disclaimer)).toBeInTheDocument();
+    expect(screen.queryByText(/Demo provider — research software only/i)).not.toBeInTheDocument();
+  });
 });

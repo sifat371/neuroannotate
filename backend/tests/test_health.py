@@ -1,5 +1,7 @@
 """Observable runtime health contract tests."""
 
+from threading import Event
+from time import monotonic, sleep
 from typing import Any
 
 import httpx
@@ -221,3 +223,71 @@ def test_health_reports_component_degradation_without_exception_text(client, mon
     assert body["storage"] == "unavailable"
     assert body["database"] == "unavailable"
     assert "error" not in body
+
+
+def test_health_distinguishes_legacy_nnunet_from_unknown_provider(client, monkeypatch):
+    """The legacy provider is diagnosable without treating unknown config as demo."""
+    monkeypatch.setattr(settings, "inference_provider", "nnunet")
+    assert client.get("/api/health").json()["inference"] == {
+        "mode": "legacy",
+        "provider": "nnunet",
+        "deepisles": "not_enabled",
+        "ready": False,
+    }
+
+    monkeypatch.setattr(settings, "inference_provider", "unexpected-provider")
+    assert client.get("/api/health").json()["inference"] == {
+        "mode": "unknown",
+        "provider": "unknown",
+        "deepisles": "unavailable",
+        "ready": False,
+    }
+
+
+def test_database_probe_returns_before_a_stalled_connection_completes(monkeypatch):
+    """A wedged database operation cannot indefinitely block a health request."""
+    started = Event()
+    release = Event()
+    calls = 0
+
+    def blocked_check() -> bool:
+        nonlocal calls
+        calls += 1
+        started.set()
+        release.wait(timeout=0.4)
+        return True
+
+    probe = health_route._DatabaseProbe(blocked_check, wait_seconds=0.02)
+    started_at = monotonic()
+    try:
+        assert probe.probe() is False
+        assert started.wait(timeout=0.1)
+        assert all(probe.probe() is False for _ in range(4))
+        assert calls == 1
+        assert monotonic() - started_at < 0.15
+    finally:
+        release.set()
+    sleep(0.03)
+    assert probe.probe() is True
+
+
+def test_database_probe_recovers_after_an_unexpected_worker_exception():
+    """An unexpected callback error must not leave the single worker permanently busy."""
+    calls = 0
+
+    def flaky_check() -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("unexpected driver failure")
+        return True
+
+    probe = health_route._DatabaseProbe(
+        flaky_check,
+        wait_seconds=0.05,
+        cache_seconds=0,
+    )
+
+    assert probe.probe() is False
+    assert probe.probe() is True
+    assert calls == 2

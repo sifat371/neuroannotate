@@ -29,7 +29,7 @@ export function InferenceControls({ selectedCase, job, onJobChange, health }: Pr
   }, [job?.id, job?.status, onJobChange]);
 
   async function run() {
-    if (!selectedCase?.ready_for_inference) return;
+    if (!selectedCase?.ready_for_inference || inferenceUnavailable) return;
     setRunning(true); setError(null);
     const provider = health?.inference?.mode === 'gpu' ? 'deepisles' : 'demo';
     try { onJobChange(await api.createInferenceJob(selectedCase.id, provider)); }
@@ -37,7 +37,7 @@ export function InferenceControls({ selectedCase, job, onJobChange, health }: Pr
     finally { setRunning(false); }
   }
   async function retry() {
-    if (!job || job.status !== 'failed') return;
+    if (!job || job.status !== 'failed' || inferenceUnavailable) return;
     setError(null);
     try { onJobChange(await api.retryInferenceJob(job.id)); }
     catch (err) { setError(err instanceof ApiError ? err.message : 'Could not retry inference.'); }
@@ -46,21 +46,38 @@ export function InferenceControls({ selectedCase, job, onJobChange, health }: Pr
   const isActive = job ? activeStatuses.has(job.status) : false;
   const gpuMode = health?.inference?.mode === 'gpu';
   const gpuReady = health?.inference?.deepisles === 'ready' && health.inference.ready;
-  const inferenceUnavailable = gpuMode && !gpuReady;
+  const inferenceUnavailable = Boolean(
+    health && !(
+      (health.inference?.mode === 'demo' && health.inference.ready)
+      || (gpuMode && gpuReady)
+    ),
+  );
+  const providerDescription = gpuMode
+    ? `DeepISLES ${health?.inference?.model_version ?? ''} on ${health?.inference?.device ?? 'an unavailable device'}.`
+    : health?.inference?.mode === 'legacy'
+      ? 'Legacy nnU-Net provider is unavailable.'
+      : health?.inference?.mode === 'unknown'
+        ? 'The configured inference provider is unrecognized.'
+        : 'The deterministic provider is not a trained medical model.';
+  const providerDisclaimer = gpuMode
+    ? 'DeepISLES provider — research software only'
+    : health?.inference?.mode === 'legacy'
+      ? 'Legacy nnU-Net provider — research software only'
+      : health?.inference?.mode === 'unknown'
+        ? 'Unavailable provider — research software only'
+        : 'Demo provider — research software only';
   return (
     <section className="panel inference-panel">
       <div className="panel-heading"><div><p className="eyebrow">AI pre-annotation</p><h2>Segmentation</h2></div></div>
-      {gpuMode ? (
-        <p className="muted compact">DeepISLES {health?.inference?.model_version ?? ''} on {health?.inference?.device ?? 'an unavailable device'}.</p>
-      ) : <p className="muted compact">The deterministic provider is not a trained medical model.</p>}
+      <p className="muted compact">{providerDescription}</p>
       <p className={`inference-state ${job?.status ?? 'idle'}`}>Status: <strong>{status}</strong></p>
       {job?.status === 'failed' && job.error_message ? <p className="error-banner">{job.error_message}</p> : null}
       <button className="primary-button full" type="button" onClick={() => void run()} disabled={!selectedCase?.ready_for_inference || running || isActive || inferenceUnavailable}>
         {running || isActive ? 'Running…' : 'Run AI Segmentation'}
       </button>
-      {job?.status === 'failed' ? <button className="secondary-button full retry-button" type="button" onClick={() => void retry()}>Retry inference</button> : null}
-      {inferenceUnavailable ? <p className="error-banner">GPU provider is unavailable. Start the GPU profile and wait for DeepISLES readiness.</p> : null}
-      <p className="clinical-note">{gpuMode ? 'DeepISLES provider — research software only' : 'Demo provider — research software only'}</p>
+      {job?.status === 'failed' ? <button className="secondary-button full retry-button" type="button" onClick={() => void retry()} disabled={inferenceUnavailable}>Retry inference</button> : null}
+      {inferenceUnavailable ? <p className="error-banner">{gpuMode ? 'GPU provider is unavailable. Start the GPU profile and wait for DeepISLES readiness.' : 'Configured inference provider is unavailable.'}</p> : null}
+      <p className="clinical-note">{providerDisclaimer}</p>
       {error ? <p role="alert" className="error-banner">{error}</p> : null}
     </section>
   );

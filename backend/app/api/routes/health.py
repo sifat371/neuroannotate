@@ -1,5 +1,8 @@
 """Bounded, privacy-safe runtime diagnostics."""
 
+from collections.abc import Callable
+from threading import Event, Lock, Thread
+from time import monotonic
 from typing import Any
 
 import httpx
@@ -14,6 +17,8 @@ from app.db.session import get_engine
 router = APIRouter(tags=["health"])
 _UPSTREAM_COMMIT = "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
 _HEALTH_TIMEOUT_SECONDS = 2.0
+_DATABASE_PROBE_WAIT_SECONDS = 0.05
+_DATABASE_PROBE_CACHE_SECONDS = 1.0
 
 
 def _probe_storage() -> bool:
@@ -25,14 +30,72 @@ def _probe_storage() -> bool:
         return False
 
 
-def _probe_database() -> bool:
-    """Check database connectivity with a constant, side-effect-free query."""
+def _check_database_connection() -> bool:
+    """Run the database operation in the probe worker."""
     try:
         with get_engine().connect() as connection:
             connection.execute(text("SELECT 1"))
         return True
     except (OSError, SQLAlchemyError):
         return False
+
+
+class _DatabaseProbe:
+    """Bound database checks to one daemon worker without queueing stale probes."""
+
+    def __init__(
+        self,
+        check: Callable[[], bool],
+        *,
+        wait_seconds: float = _DATABASE_PROBE_WAIT_SECONDS,
+        cache_seconds: float = _DATABASE_PROBE_CACHE_SECONDS,
+    ) -> None:
+        self._check = check
+        self._wait_seconds = wait_seconds
+        self._cache_seconds = cache_seconds
+        self._lock = Lock()
+        self._ready = Event()
+        self._available = False
+        self._in_flight = False
+        self._last_completed: float | None = None
+
+    def probe(self) -> bool:
+        """Return a recent result or a bounded unavailable result while checking."""
+        now = monotonic()
+        with self._lock:
+            fresh = (
+                self._last_completed is not None
+                and now - self._last_completed < self._cache_seconds
+            )
+            if not self._in_flight and not fresh:
+                self._available = False
+                self._in_flight = True
+                self._ready = Event()
+                Thread(target=self._run, daemon=True).start()
+            ready = self._ready
+        ready.wait(self._wait_seconds)
+        with self._lock:
+            return self._available if ready.is_set() else False
+
+    def _run(self) -> None:
+        """Publish one check result and release future refreshes without blocking shutdown."""
+        try:
+            available = self._check()
+        except Exception:
+            available = False
+        with self._lock:
+            self._available = available
+            self._in_flight = False
+            self._last_completed = monotonic()
+            self._ready.set()
+
+
+_database_probe = _DatabaseProbe(_check_database_connection)
+
+
+def _probe_database() -> bool:
+    """Return bounded database health without synchronously waiting on the driver."""
+    return _database_probe.probe()
 
 
 def _deepisles_health() -> dict[str, Any]:
@@ -90,7 +153,19 @@ def _inference_health() -> dict[str, Any]:
         return {"mode": "demo", "deepisles": "not_enabled", "ready": True}
     if settings.inference_provider == "deepisles":
         return _deepisles_health()
-    return {"mode": "unknown", "deepisles": "unavailable", "ready": False}
+    if settings.inference_provider == "nnunet":
+        return {
+            "mode": "legacy",
+            "provider": "nnunet",
+            "deepisles": "not_enabled",
+            "ready": False,
+        }
+    return {
+        "mode": "unknown",
+        "provider": "unknown",
+        "deepisles": "unavailable",
+        "ready": False,
+    }
 
 
 def _health_payload() -> dict[str, Any]:
