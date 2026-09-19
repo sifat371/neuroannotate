@@ -1,6 +1,7 @@
 import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
 from app.core.config import settings
-from app.db.session import configure_database, run_migrations
+from app.db.session import configure_database, get_engine, new_session, run_migrations
 from app.main import create_app
 
 
@@ -22,6 +23,22 @@ def seed_mvp_db() -> Callable[[Path], Path]:
         return database_path
 
     return seed
+
+
+@contextmanager
+def isolated_app_configuration(
+    *, data_dir: Path, database_url: str
+) -> Iterator[None]:
+    previous_data_dir = settings.data_dir
+    previous_database_url = str(get_engine().url)
+    settings.data_dir = data_dir
+    temporary_engine = configure_database(database_url)
+    try:
+        yield
+    finally:
+        temporary_engine.dispose()
+        settings.data_dir = previous_data_dir
+        configure_database(previous_database_url)
 
 
 def test_mvp_database_migrates_without_losing_case(
@@ -125,11 +142,11 @@ def test_migrated_mvp_sources_remain_listable_through_case_detail(
 ) -> None:
     database_path = seed_mvp_db(tmp_path / "mvp.db")
     database_url = f"sqlite:///{database_path}"
-    settings.data_dir = tmp_path / "data"
-    configure_database(database_url)
-
-    with TestClient(create_app(start_worker=False)) as client:
-        response = client.get("/api/cases/case-1")
+    with isolated_app_configuration(
+        data_dir=tmp_path / "data", database_url=database_url
+    ):
+        with TestClient(create_app(start_worker=False)) as client:
+            response = client.get("/api/cases/case-1")
 
     assert response.status_code == 200
     assert response.json()["sources"] == [
@@ -188,6 +205,30 @@ def test_migrated_mvp_sources_remain_listable_through_case_detail(
             "created_at": "2026-01-02T03:07:00",
         },
     ]
+
+
+def test_isolated_app_configuration_restores_state_after_failure(tmp_path: Path) -> None:
+    previous_data_dir = settings.data_dir
+    previous_database_url = str(get_engine().url)
+
+    temporary_engine = None
+    temporary_pool = None
+    with pytest.raises(RuntimeError, match="intentional test failure"):
+        with isolated_app_configuration(
+            data_dir=tmp_path / "temporary-data",
+            database_url=f"sqlite:///{tmp_path / 'temporary.db'}",
+        ):
+            temporary_engine = get_engine()
+            temporary_pool = temporary_engine.pool
+            raise RuntimeError("intentional test failure")
+
+    assert settings.data_dir == previous_data_dir
+    assert str(get_engine().url) == previous_database_url
+    assert get_engine() is not temporary_engine
+    assert temporary_engine is not None
+    assert temporary_engine.pool is not temporary_pool
+    with new_session() as session:
+        assert str(session.get_bind().url) == previous_database_url
 
 
 def test_migrations_create_a_fresh_database_and_are_idempotent(tmp_path: Path) -> None:

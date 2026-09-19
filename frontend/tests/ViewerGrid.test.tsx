@@ -35,6 +35,15 @@ function source(modality: SourceArtifact['modality'], geometry = authoritativeDw
   };
 }
 
+function migratedSource(modality: SourceArtifact['modality']): SourceArtifact {
+  return {
+    ...source(modality),
+    sha256: null,
+    file_size: null,
+    datatype: null,
+  };
+}
+
 function caseDetail(sources: SourceArtifact[] = [source('DWI'), source('ADC'), source('FLAIR', authoritativeFlair)]): CaseDetail {
   return { ...selectedCase, annotation_space: 'DWI', sources };
 }
@@ -83,6 +92,21 @@ test('uses authoritative anisotropic oblique and sheared metadata rather than no
 
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
   expect(attachLabelmap).not.toHaveBeenCalled();
+});
+
+test('uses migrated source geometry when legacy integrity metadata is unavailable', async () => {
+  vi.mocked(createViewerSession).mockResolvedValue({ destroy: vi.fn(), setPrimaryTool: vi.fn() } as never);
+  vi.mocked(api.getCase).mockResolvedValue(caseDetail([
+    migratedSource('DWI'),
+    migratedSource('ADC'),
+    migratedSource('FLAIR'),
+  ]));
+  vi.mocked(attachLabelmap).mockResolvedValue(editableLabelmap());
+
+  render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
+
+  await waitFor(() => expect(attachLabelmap).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText('Segmentation overlay unavailable in this geometry.')).not.toBeInTheDocument();
 });
 
 test('fails closed when immutable metadata lacks the canonical or displayed source', async () => {

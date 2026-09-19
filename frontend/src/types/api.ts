@@ -15,12 +15,12 @@ export interface SourceArtifact {
   modality: Modality;
   original_filename: string;
   relative_path: string;
-  sha256: string;
-  file_size: number;
+  sha256: string | null;
+  file_size: number | null;
   shape: [number, number, number];
   spacing: [number, number, number];
   affine: number[][];
-  datatype: string;
+  datatype: string | null;
   created_at: string;
 }
 

@@ -11,7 +11,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "test": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit --project tsconfig.app.json"
   },
   "dependencies": {
     "@cornerstonejs/core": "5.10.4",
