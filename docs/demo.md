@@ -1,18 +1,17 @@
-# Five-minute NeuroAnnotate Demo
+# Five-minute CPU demo
 
-1. Run `make demo-data` and `make seed-demo`, then `make dev`.
+The bundled demonstration uses synthetic NIfTI volumes and a deterministic CPU image-processing
+provider. It does not require a GPU or model weights. It is research software only, not a trained
+medical model and not for diagnosis, treatment, or clinical decision-making.
+
+1. Run `make demo-data`, `make seed-demo`, and `docker compose up --build`.
 2. Open `http://localhost:5173` and select **NeuroAnnotate Demo**.
-3. Switch between **DWI**, **ADC**, and **FLAIR**.
-4. Navigate the axial, sagittal, and coronal views.
-5. Click **Run AI Segmentation**.
-6. Toggle the overlay and change its opacity.
-7. Use **Brush** and **Erase** on one region.
-8. Use **Undo** and **Redo**.
-9. Add an optional note and click **Save Revision**.
-10. Re-open the saved revision and click **Export Annotation**.
+3. Switch among DWI, ADC, and FLAIR and navigate axial, sagittal, and coronal views.
+4. Click **Run AI Segmentation** and wait for the persisted job to move from queued/running to
+   completed.
+5. Toggle the overlay, adjust opacity, then use Brush/Erase and Undo/Redo.
+6. Add an optional note and click **Save Revision**. The saved revision becomes the clean base.
+7. Re-open the revision, click **Create Export**, and download the ZIP containing
+   `lesion-mask.nii.gz` and `provenance.json`.
 
-The demo provider is deterministic and CPU-only. It is a software demonstration, not a trained clinical segmentation model.
-
-## Portfolio capture
-
-For a short GIF or screen recording, capture steps 2–10 in one continuous session. Keep generated media outside git or compress it before adding a small preview asset to the README.
+For import, retry, dirty-state, revision, and export rules, see [workflow.md](workflow.md).
