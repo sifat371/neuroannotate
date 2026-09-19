@@ -22,12 +22,12 @@ class SourceArtifactRead(BaseModel):
     modality: Literal["DWI", "ADC", "FLAIR"]
     original_filename: str
     relative_path: str
-    sha256: str
-    file_size: int
+    sha256: str | None
+    file_size: int | None
     shape: tuple[int, int, int]
     spacing: tuple[float, float, float]
     affine: list[list[float]]
-    datatype: str
+    datatype: str | None
     created_at: datetime
 
 

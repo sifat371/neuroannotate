@@ -4,9 +4,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
-from app.db.session import run_migrations
+from app.core.config import settings
+from app.db.session import configure_database, run_migrations
+from app.main import create_app
 
 
 @pytest.fixture
@@ -114,6 +117,77 @@ def test_mvp_database_migrates_without_losing_case(
             assert migrated_revision.relative_path == "case-1/revisions/revision-1.nii.gz"
     finally:
         engine.dispose()
+
+
+def test_migrated_mvp_sources_remain_listable_through_case_detail(
+    tmp_path: Path,
+    seed_mvp_db: Callable[[Path], Path],
+) -> None:
+    database_path = seed_mvp_db(tmp_path / "mvp.db")
+    database_url = f"sqlite:///{database_path}"
+    settings.data_dir = tmp_path / "data"
+    configure_database(database_url)
+
+    with TestClient(create_app(start_worker=False)) as client:
+        response = client.get("/api/cases/case-1")
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == [
+        {
+            "id": "source-adc",
+            "modality": "ADC",
+            "original_filename": "adc.nii.gz",
+            "relative_path": "case-1/modalities/adc.nii.gz",
+            "sha256": None,
+            "file_size": None,
+            "shape": [10, 11, 12],
+            "spacing": [1.00005, 1.1, 1.2],
+            "affine": [
+                [1.00005, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            "datatype": None,
+            "created_at": "2026-01-02T03:06:00",
+        },
+        {
+            "id": "source-dwi",
+            "modality": "DWI",
+            "original_filename": "dwi.nii.gz",
+            "relative_path": "case-1/modalities/dwi.nii.gz",
+            "sha256": None,
+            "file_size": None,
+            "shape": [10, 11, 12],
+            "spacing": [1.0, 1.1, 1.2],
+            "affine": [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            "datatype": None,
+            "created_at": "2026-01-02T03:05:00",
+        },
+        {
+            "id": "source-flair",
+            "modality": "FLAIR",
+            "original_filename": "flair.nii.gz",
+            "relative_path": "case-1/modalities/flair.nii.gz",
+            "sha256": None,
+            "file_size": None,
+            "shape": [10, 11, 12],
+            "spacing": [1.0, 1.1, 1.2],
+            "affine": [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            "datatype": None,
+            "created_at": "2026-01-02T03:07:00",
+        },
+    ]
 
 
 def test_migrations_create_a_fresh_database_and_are_idempotent(tmp_path: Path) -> None:
