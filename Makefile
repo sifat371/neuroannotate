@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: dev down demo-data seed-demo test lint backend-test frontend-test clean-data smoke migrate validate-gpu
+.PHONY: dev down demo-data seed-demo test lint backend-test frontend-test clean-data smoke migrate validate-gpu verify
 
 dev:
 	docker compose up --build
@@ -34,6 +34,12 @@ migrate:
 
 validate-gpu:
 	./scripts/validate_gpu.sh
+
+verify:
+	cd backend && ruff check app tests && pytest -q
+	cd frontend && npm run lint && npm test -- --run && npm run build
+	docker compose config >/dev/null
+	docker compose --profile gpu config >/dev/null
 
 clean-data:
 	rm -rf data/cases/* data/neuroannotate.db data/smoke-*

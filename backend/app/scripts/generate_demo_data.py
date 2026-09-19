@@ -1,12 +1,54 @@
+import gzip
+import shutil
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, label
 
 from app.services.nifti_codec import save_volume
 
 
+def _save_deterministic_volume(
+    path: Path,
+    data: np.ndarray,
+    affine: np.ndarray,
+    *,
+    dtype: type[np.generic],
+) -> Path:
+    """Write a NIfTI gzip stream without timestamps or host-specific names."""
+    uncompressed_path = path.with_suffix("")
+    try:
+        save_volume(uncompressed_path, data, affine, dtype=dtype)
+        with (
+            uncompressed_path.open("rb") as source,
+            path.open("wb") as destination,
+            gzip.GzipFile(filename="", fileobj=destination, mode="wb", mtime=0) as target,
+        ):
+            shutil.copyfileobj(source, target)
+    finally:
+        uncompressed_path.unlink(missing_ok=True)
+    return path
+
+
+def _expected_demo_mask(dwi: np.ndarray) -> np.ndarray:
+    """Return the deterministic mask produced by the built-in demo provider."""
+    dwi = np.asarray(dwi, dtype=np.float32)
+    finite = np.isfinite(dwi)
+    if not finite.any():
+        return np.zeros(dwi.shape, dtype=np.uint8)
+
+    threshold = float(np.percentile(dwi[finite], 92))
+    components, count = label((dwi >= threshold) & finite)
+    if not count:
+        return np.zeros(dwi.shape, dtype=np.uint8)
+    sizes = np.bincount(components.ravel())
+    keep = sizes >= 8
+    keep[0] = False
+    return keep[components].astype(np.uint8)
+
+
 def generate_demo_case(output_dir: Path) -> dict[str, Path]:
+    """Generate a reproducible, non-patient source triad and expected mask."""
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(2026)
     shape = (64, 64, 48)
@@ -49,11 +91,24 @@ def generate_demo_case(output_dir: Path) -> dict[str, Path]:
         dtype=float,
     )
 
+    dwi = dwi.astype(np.float32)
+    adc = adc.astype(np.float32)
+    flair = flair.astype(np.float32)
     outputs: dict[str, Path] = {}
     for name, array in {"DWI": dwi, "ADC": adc, "FLAIR": flair}.items():
         path = output_dir / f"demo_{name.lower()}.nii.gz"
-        save_volume(path, array.astype(np.float32), affine, dtype=np.float32)
-        outputs[name] = path
+        outputs[name] = _save_deterministic_volume(
+            path,
+            array,
+            affine,
+            dtype=np.float32,
+        )
+    outputs["MASK"] = _save_deterministic_volume(
+        output_dir / "demo_mask.nii.gz",
+        _expected_demo_mask(dwi),
+        affine,
+        dtype=np.uint8,
+    )
     return outputs
 
 
