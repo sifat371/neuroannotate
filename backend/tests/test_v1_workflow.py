@@ -166,7 +166,9 @@ def test_demo_path_reaches_reproducible_export(
     bundle_response = client.get(export["bundle_url"])
     assert bundle_response.status_code == 200
     with zipfile.ZipFile(io.BytesIO(bundle_response.content)) as archive:
-        assert set(archive.namelist()) == {"lesion-mask.nii.gz", "provenance.json"}
+        names = archive.namelist()
+        assert len(names) == 2
+        assert set(names) == {"lesion-mask.nii.gz", "provenance.json"}
         exported_mask = archive.read("lesion-mask.nii.gz")
         provenance = json.loads(archive.read("provenance.json"))
 
