@@ -68,14 +68,22 @@ with that immediate base and are descriptive mask statistics only; see
 
 ## 5. Export a saved revision
 
-Export is disabled until a revision has been saved and while the workspace is dirty. Creating an
-export copies the selected immutable revision into a new immutable snapshot only after checking
-source, segmentation, and revision SHA-256 values.
+Export is disabled until a revision has been saved and while the workspace is dirty. The portable
+v1 export is created with POST `/api/cases/{case_id}/exports`, which copies the selected immutable
+revision into a new immutable snapshot only after checking source, segmentation, and revision
+SHA-256 values.
 
 Each export provides:
 
-- `lesion-mask.nii.gz`, a binary `uint8` mask in canonical DWI-native geometry;
-- `provenance.json`, validated against the committed v1 schema; and
-- `neuroannotate-export.zip`, containing exactly those two files.
+- `/api/exports/{export_id}/mask`, serving `lesion-mask.nii.gz`, a binary `uint8` mask in
+  canonical DWI-native geometry;
+- `/api/exports/{export_id}/provenance`, serving `provenance.json`, validated against the
+  committed v1 schema; and
+- `/api/exports/{export_id}/bundle`, serving `neuroannotate-export.zip`, containing exactly
+  those two files.
+
+The compatibility GET `/api/cases/{case_id}/export?revision_id=...` route returns only the raw
+saved revision NIfTI. It is not a portable provenance bundle and does not include
+`provenance.json` or the two-file ZIP.
 
 See [provenance.md](provenance.md) for field and portability semantics.

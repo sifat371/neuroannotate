@@ -4,6 +4,7 @@ from time import monotonic, sleep
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from app.core.release import RELEASE_VERSION
 from app.db.models import InferenceJob
 from app.db.session import configure_database, new_session
 from app.main import create_app
@@ -19,7 +20,7 @@ def test_running_jobs_fail_on_backend_restart(client, tmp_path: Path) -> None:
             provider="demo",
             model_name="deterministic_demo_threshold",
             model_version="2",
-            service_version="0.1.0",
+            service_version=RELEASE_VERSION,
             status="running",
             provenance_json="{}",
         )

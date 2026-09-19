@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import ApiError
+from app.core.release import RELEASE_VERSION
 from app.db.models import (
     AnnotationRevision,
     Case,
@@ -77,7 +78,7 @@ def _software_identity() -> dict[str, object]:
         commit: str | None = completed.stdout.strip() or None
     except (OSError, subprocess.CalledProcessError):
         commit = None
-    return {"name": settings.app_name, "version": "0.1.0", "git_commit": commit}
+    return {"name": settings.app_name, "version": RELEASE_VERSION, "git_commit": commit}
 
 
 def _require_digest_matches(path: Path, expected: str | None, field: str) -> None:

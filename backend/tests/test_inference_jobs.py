@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from app.core.config import settings
+from app.core.release import RELEASE_VERSION
 from app.db.models import InferenceJob, SourceArtifact
 from app.db.session import new_session
 from app.services.inference import jobs as jobs_module
@@ -133,14 +134,14 @@ def test_provider_status_reports_identity_and_availability(client) -> None:
             "name": "demo",
             "model_name": "deterministic_demo_threshold",
             "model_version": "2",
-            "service_version": "0.1.0",
+            "service_version": RELEASE_VERSION,
             "available": True,
         },
         {
             "name": "nnunet",
             "model_name": "nnunet",
             "model_version": "unconfigured",
-            "service_version": "0.1.0",
+            "service_version": RELEASE_VERSION,
             "available": False,
         },
     ]

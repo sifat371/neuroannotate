@@ -4,6 +4,7 @@ import numpy as np
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.release import RELEASE_VERSION
 from app.db.models import InferenceJob, SegmentationArtifact
 from app.db.session import new_session
 from app.services.nifti_codec import load_volume
@@ -51,7 +52,7 @@ def test_demo_inference_is_deterministic_and_downloadable(client, tmp_path):
         assert latest is not None
         assert latest.model_name == "deterministic_demo_threshold"
         assert latest.model_version == "2"
-        assert latest.service_version == "0.1.0"
+        assert latest.service_version == RELEASE_VERSION
         provenance = json.loads(latest.provenance_json)
         assert provenance["configuration"]["input_modalities"] == ["DWI"]
         assert provenance["runtime"]["device"] == "cpu"

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.core.errors import ApiError
+from app.core.release import RELEASE_VERSION
 from app.db.models import (
     AnnotationRevision,
     Case,
@@ -96,7 +97,7 @@ def provenance() -> dict[str, object]:
         segmentation=segmentation,
         revision=revision,
         export=export,
-        software={"name": "NeuroAnnotate", "version": "0.1.0", "git_commit": None},
+        software={"name": "NeuroAnnotate", "version": RELEASE_VERSION, "git_commit": None},
         lineage=[revision.id],
     )
 
@@ -105,6 +106,7 @@ def test_provenance_is_portable_and_has_required_sections(provenance: dict[str, 
     """Removing the portable document fields should make this contract fail."""
     assert provenance["schema"] == "neuroannotate.provenance"
     assert provenance["schema_version"] == "1.0"
+    assert provenance["software"]["version"] == RELEASE_VERSION
     assert provenance["case"] == {"case_id": "case-id", "annotation_space": "DWI"}
     assert set(provenance["sources"]) == {"DWI", "ADC", "FLAIR"}
     assert provenance["output"]["label_map"] == {"0": "background", "1": "lesion"}

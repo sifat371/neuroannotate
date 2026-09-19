@@ -16,6 +16,7 @@ from app.api.routes import (
 )
 from app.core.config import settings
 from app.core.errors import ApiError
+from app.core.release import RELEASE_VERSION
 from app.db.session import get_engine, new_session, run_migrations
 from app.services.inference.worker import recover_interrupted_jobs, run_worker_loop
 
@@ -46,7 +47,7 @@ async def lifespan(_app: FastAPI):
 
 
 def create_app(*, start_worker: bool = True) -> FastAPI:
-    app = FastAPI(title="NeuroAnnotate API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="NeuroAnnotate API", version=RELEASE_VERSION, lifespan=lifespan)
     app.state.start_inference_worker = start_worker
     app.add_middleware(
         CORSMiddleware,

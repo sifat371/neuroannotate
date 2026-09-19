@@ -4,6 +4,7 @@ from time import perf_counter
 import numpy as np
 from scipy import ndimage
 
+from app.core.release import RELEASE_VERSION
 from app.services.inference.base import (
     CaseInput,
     ProviderInfo,
@@ -17,7 +18,7 @@ class DemoSegmentationProvider:
     name = "demo"
 
     def info(self) -> ProviderInfo:
-        return ProviderInfo(self.name, "deterministic_demo_threshold", "2", "0.1.0", True)
+        return ProviderInfo(self.name, "deterministic_demo_threshold", "2", RELEASE_VERSION, True)
 
     def segment(self, case: CaseInput, output_path: Path) -> ProviderResult:
         started = perf_counter()

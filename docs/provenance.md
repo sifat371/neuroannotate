@@ -1,10 +1,16 @@
 # Export provenance
 
-Every v1 export is an immutable snapshot of one saved annotation revision. Export creation
-verifies the managed source triad, source segmentation, and revision artifacts before publishing
-`lesion-mask.nii.gz` and `provenance.json`; the downloadable ZIP contains exactly those two
-entries. The JSON is validated against
+Every portable v1 export is an immutable snapshot of one saved annotation revision created with
+POST `/api/cases/{case_id}/exports`. Export creation verifies the managed source triad, source
+segmentation, and revision artifacts before publishing `/api/exports/{export_id}/mask`,
+`/api/exports/{export_id}/provenance`, and `/api/exports/{export_id}/bundle`. The bundle is
+`neuroannotate-export.zip` and contains exactly `lesion-mask.nii.gz` and `provenance.json`.
+The JSON is validated against
 `backend/tests/fixtures/provenance_schema_v1.json` (`neuroannotate.provenance`, version `1.0`).
+
+The compatibility GET `/api/cases/{case_id}/export?revision_id=...` route is intentionally
+raw saved revision NIfTI only. It is not a portable provenance bundle and does not include
+`provenance.json` or the two-file ZIP.
 
 ## Canonical geometry
 

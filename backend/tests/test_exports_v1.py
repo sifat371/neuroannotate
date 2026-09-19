@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.errors import ApiError
+from app.core.release import RELEASE_VERSION
 from app.db.models import AnnotationRevision, ExportArtifact, SourceArtifact
 from app.db.session import new_session
 from app.services import exports as exports_module
@@ -53,6 +54,8 @@ def test_export_snapshots_saved_revision_with_portable_provenance_and_standard_b
     provenance = provenance_response.json()
     digest = hashlib.sha256(mask.content).hexdigest()
     assert digest == export["mask_sha256"] == provenance["output"]["sha256"]
+    assert provenance["software"]["version"] == RELEASE_VERSION
+    assert provenance["ai_segmentation"]["service_version"] == RELEASE_VERSION
     assert provenance["annotation"]["lineage"] == [revision_id]
     assert "/home/" not in provenance_response.text
     assert provenance_response.content.endswith(b"\n")
