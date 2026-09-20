@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-RELEASE_VERSION = "1.0.0"
+TARGET_VERSION = "1.0.0"
 REPOSITORY_CODE = "https://github.com/sifat371/neuroannotate"
 
 
@@ -25,10 +25,11 @@ def _load_cff_metadata(cff: str) -> Mapping[str, object]:
     return document
 
 
-def _assert_cff_release_identity(document: Mapping[str, object]) -> None:
+def _assert_cff_development_identity(document: Mapping[str, object]) -> None:
     assert document.get("title") == "NeuroAnnotate"
-    assert document.get("version") == RELEASE_VERSION
     assert document.get("repository-code") == REPOSITORY_CODE
+    assert "version" not in document
+    assert "date-released" not in document
 
 
 def test_release_metadata_files_exist(repo_root: Path) -> None:
@@ -46,7 +47,7 @@ def test_release_metadata_files_exist(repo_root: Path) -> None:
     ]:
         assert (repo_root / rel).is_file(), rel
 
-    _assert_cff_release_identity(
+    _assert_cff_development_identity(
         _load_cff_metadata((repo_root / "CITATION.cff").read_text(encoding="utf-8"))
     )
 
@@ -63,18 +64,17 @@ def test_cff_metadata_requires_valid_top_level_mapping(cff: str, message: str) -
         _load_cff_metadata(cff)
 
 
-def test_cff_metadata_requires_exact_scalar_release_identity() -> None:
+def test_cff_metadata_requires_exact_scalar_development_identity() -> None:
     with pytest.raises(AssertionError):
-        _assert_cff_release_identity(
+        _assert_cff_development_identity(
             {
                 "title": "NeuroAnnotate",
-                "version": RELEASE_VERSION,
                 "repository-code": [REPOSITORY_CODE],
             }
         )
 
 
-def test_release_identity_surfaces_match_citation_metadata(repo_root: Path, client) -> None:
+def test_target_version_surfaces_match_during_pre_release(repo_root: Path, client) -> None:
     from app.services.exports import _software_identity
     from app.services.inference.demo import DemoSegmentationProvider
     from app.services.inference.nnunet import NNUNetProvider
@@ -86,13 +86,24 @@ def test_release_identity_surfaces_match_citation_metadata(repo_root: Path, clie
         (repo_root / "frontend" / "package.json").read_text(encoding="utf-8")
     )
 
-    assert backend_metadata["project"]["version"] == RELEASE_VERSION
-    assert frontend_metadata["version"] == RELEASE_VERSION
-    assert client.get("/openapi.json").json()["info"]["version"] == RELEASE_VERSION
-    assert _software_identity()["version"] == RELEASE_VERSION
-    assert DemoSegmentationProvider().info().service_version == RELEASE_VERSION
-    assert NNUNetProvider().info().service_version == RELEASE_VERSION
+    assert backend_metadata["project"]["version"] == TARGET_VERSION
+    assert frontend_metadata["version"] == TARGET_VERSION
+    assert client.get("/openapi.json").json()["info"]["version"] == TARGET_VERSION
+    assert _software_identity()["version"] == TARGET_VERSION
+    assert DemoSegmentationProvider().info().service_version == TARGET_VERSION
+    assert NNUNetProvider().info().service_version == TARGET_VERSION
 
+
+
+def test_repository_metadata_marks_version_as_unreleased(repo_root: Path) -> None:
+    changelog = (repo_root / "CHANGELOG.md").read_text(encoding="utf-8")
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    security = (repo_root / "SECURITY.md").read_text(encoding="utf-8")
+
+    assert "## [Unreleased]" in changelog
+    assert "## [1.0.0]" not in changelog
+    assert "active pre-release development" in readme.lower()
+    assert "no tagged stable release" in security.lower()
 
 def test_readme_links_to_release_documentation(repo_root: Path) -> None:
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
