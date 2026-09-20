@@ -2,7 +2,7 @@
 
 All notable changes to NeuroAnnotate are documented here.
 
-## [1.0.0] - 2026-09-19
+## [Unreleased]
 
 ### Added
 
@@ -17,3 +17,5 @@ All notable changes to NeuroAnnotate are documented here.
 
 - Single-user, local/self-hosted research software; NIfTI only.
 - Not a medical device and not for diagnosis, treatment, or clinical decision-making.
+
+A versioned section and release date will be added when the first release is actually tagged.
