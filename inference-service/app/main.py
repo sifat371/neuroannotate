@@ -119,8 +119,9 @@ async def segment(request: Request) -> Response:
         started = perf_counter()
         try:
             async with _INFERENCE_LOCK:
-                mask_path = await asyncio.to_thread(
-                    run_deepisles, paths[0], paths[1], paths[2], output_dir
+                loop = asyncio.get_running_loop()
+                mask_path = await loop.run_in_executor(
+                    None, run_deepisles, paths[0], paths[1], paths[2], output_dir
                 )
         except HTTPException:
             raise
