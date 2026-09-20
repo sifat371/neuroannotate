@@ -1,5 +1,7 @@
 # NeuroAnnotate
 
+> **Development status:** active pre-release development. No stable version has been tagged yet.
+
 NeuroAnnotate is a single-user, local/self-hosted research workspace for importing a
 DWI/ADC/FLAIR NIfTI triad, generating a lesion-mask pre-annotation, editing it in three
 planes, saving immutable revisions, and exporting a portable mask with provenance. The

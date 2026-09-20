@@ -1,8 +1,10 @@
 # Security and privacy
 
-## Supported release
+## Supported development state
 
-Security fixes target the current `1.0.x` release line. Older snapshots may not receive fixes.
+NeuroAnnotate is currently under active pre-release development and has no tagged stable release.
+Security fixes target the current `main` branch until the first versioned release is published.
+Older development snapshots may not receive fixes.
 
 ## Deployment boundary
 

@@ -2,8 +2,6 @@ cff-version: 1.2.0
 message: "If you use this research software, please cite it using this metadata."
 type: software
 title: NeuroAnnotate
-version: 1.0.0
-date-released: 2026-09-19
 authors:
   - family-names: Sifat
     given-names: Md.

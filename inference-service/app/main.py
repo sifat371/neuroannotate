@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Any, Dict, Iterable
 
@@ -24,7 +25,7 @@ from app.runner import run_deepisles
 
 app = FastAPI(title="NeuroAnnotate DeepISLES Service")
 _EXPECTED_FIELDS = frozenset(("dwi", "adc", "flair"))
-_INFERENCE_LOCK = asyncio.Lock()
+_INFERENCE_LOCK = Lock()
 _CONFIGURATION = {
     "skull_strip": False,
     "fast": False,
@@ -66,6 +67,14 @@ def _metadata(duration_seconds: float) -> Dict[str, Any]:
         "configuration": dict(_CONFIGURATION),
         "runtime": runtime,
     }
+
+
+def _run_deepisles_serialized(
+    dwi: Path, adc: Path, flair: Path, output_dir: Path
+) -> Path:
+    """Serialize GPU execution without blocking the FastAPI event loop."""
+    with _INFERENCE_LOCK:
+        return run_deepisles(dwi, adc, flair, output_dir)
 
 
 def _archive(mask_path: Path, metadata: Dict[str, Any]) -> bytes:
@@ -118,10 +127,15 @@ async def segment(request: Request) -> Response:
         output_dir.mkdir()
         started = perf_counter()
         try:
-            async with _INFERENCE_LOCK:
-                mask_path = await asyncio.to_thread(
-                    run_deepisles, paths[0], paths[1], paths[2], output_dir
-                )
+            loop = asyncio.get_running_loop()
+            mask_path = await loop.run_in_executor(
+                None,
+                _run_deepisles_serialized,
+                paths[0],
+                paths[1],
+                paths[2],
+                output_dir,
+            )
         except HTTPException:
             raise
         except Exception as exc:

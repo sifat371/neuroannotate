@@ -37,10 +37,19 @@ For frontend work, use Node.js 22:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run lint
 npm test -- --run
 npm run build
+```
+
+For the lightweight DeepISLES service contract tests (no GPU or model weights required), use Python 3.8:
+
+```bash
+cd inference-service
+python -m pip install -r requirements-test.txt
+ruff check app tests
+python -m pytest tests -q
 ```
 
 ## Changes and tests
