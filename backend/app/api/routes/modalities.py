@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -8,11 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import ApiError
-from app.db.models import ModalityArtifact
+from app.db.models import SourceArtifact
 from app.db.session import get_session
 from app.repositories.cases import CaseRepository
 from app.services.cases import case_to_dict, require_case
-from app.services.nifti import assert_compatible_geometry, inspect_nifti
+from app.services.nifti import inspect_nifti
 from app.services.storage import Storage
 
 router = APIRouter(prefix="/api/cases", tags=["modalities"])
@@ -71,29 +72,23 @@ async def upload_modality(
     await _save_upload(file, path)
     try:
         meta = inspect_nifti(path)
-        reference = next(
-            (
-                artifact
-                for candidate_modality in ("DWI", "ADC", "FLAIR")
-                if (artifact := repo.get_modality(case_id, candidate_modality))
-            ),
-            None,
-        )
-        if reference:
-            ref_meta = inspect_nifti(storage.resolve(reference.relative_path))
-            assert_compatible_geometry(ref_meta, meta)
-
-        artifact = ModalityArtifact(
+        with path.open("rb") as file_handle:
+            sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
+        artifact = SourceArtifact(
             case_id=case_id,
             modality=modality,
+            original_filename=file.filename or path.name,
             relative_path=storage.relative(path),
+            sha256=sha256,
+            file_size=path.stat().st_size,
             shape_x=meta.shape[0],
             shape_y=meta.shape[1],
             shape_z=meta.shape[2],
             spacing_x=meta.spacing[0],
             spacing_y=meta.spacing[1],
             spacing_z=meta.spacing[2],
-            affine_json=json.dumps(meta.affine.tolist()),
+            affine_json=json.dumps(meta.affine),
+            datatype=meta.datatype,
         )
         repo.add_modality(artifact)
     except Exception:

@@ -1,5 +1,12 @@
-import numpy as np
+import json
 
+import numpy as np
+from sqlalchemy import select
+
+from app.core.config import settings
+from app.core.release import RELEASE_VERSION
+from app.db.models import InferenceJob, SegmentationArtifact
+from app.db.session import new_session
 from app.services.nifti_codec import load_volume
 from tests.helpers import create_case, upload_case_modalities
 
@@ -35,3 +42,48 @@ def test_demo_inference_is_deterministic_and_downloadable(client, tmp_path):
     assert first_volume.data.shape == (12, 12, 12)
     assert set(np.unique(first_array)).issubset({0, 1})
     assert second_run.json()["provider"] == "demo"
+
+    with new_session() as session:
+        latest = session.scalar(
+            select(InferenceJob)
+            .where(InferenceJob.case_id == case_id)
+            .order_by(InferenceJob.created_at.desc())
+        )
+        assert latest is not None
+        assert latest.model_name == "deterministic_demo_threshold"
+        assert latest.model_version == "2"
+        assert latest.service_version == RELEASE_VERSION
+        provenance = json.loads(latest.provenance_json)
+        assert provenance["configuration"]["input_modalities"] == ["DWI"]
+        assert provenance["runtime"]["device"] == "cpu"
+        assert provenance["result"]["sha256"] == latest.segmentation.sha256
+        assert len(provenance["sources"]) == 3
+
+
+def test_legacy_segment_route_rejects_configured_deepisles_before_execution(
+    client, tmp_path, monkeypatch
+):
+    """Calling an async-only provider from this synchronous route must fail."""
+    from app.services.inference.deepisles import DeepISLESProvider
+    from tests.helpers import import_case
+
+    monkeypatch.setattr(settings, "inference_provider", "deepisles")
+    monkeypatch.setattr(settings, "deepisles_url", "http://deepisles:8080")
+    calls = []
+
+    def forbidden_segment(*_args, **_kwargs):
+        calls.append(True)
+        raise AssertionError("legacy route invoked DeepISLES")
+
+    monkeypatch.setattr(DeepISLESProvider, "segment", forbidden_segment)
+    case_id = import_case(client, tmp_path)["id"]
+
+    response = client.post(f"/api/cases/{case_id}/segment")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "async_provider_required"
+    assert calls == []
+    with new_session() as session:
+        assert session.scalar(select(InferenceJob)) is None
+        assert session.scalar(select(SegmentationArtifact)) is None
+    assert not (settings.data_dir / "inference").exists()

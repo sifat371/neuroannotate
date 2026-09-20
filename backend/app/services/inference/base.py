@@ -10,12 +10,38 @@ class CaseInput:
 
 
 @dataclass(frozen=True)
-class SegmentationResult:
+class ProviderInfo:
+    name: str
+    model_name: str
+    model_version: str
+    service_version: str
+    available: bool
+
+
+@dataclass(frozen=True)
+class ProviderResult:
     mask_path: Path
     provider: str
-    metadata: dict[str, str | int | float | bool]
+    model_name: str
+    model_version: str
+    service_version: str
+    configuration: dict[str, object]
+    runtime: dict[str, object]
+
+
+class ProviderOutputPersistenceError(Exception):
+    """Raised when a provider cannot write its output artifact."""
+
+
+class ProviderUnavailableError(Exception):
+    """Raised when the configured provider cannot be reached."""
+
+
+class ProviderRuntimeError(Exception):
+    """Raised when a provider returns an invalid or failed result."""
 
 
 class SegmentationProvider(Protocol):
     name: str
-    def segment(self, case: CaseInput, output_path: Path) -> SegmentationResult: ...
+    def info(self) -> ProviderInfo: ...
+    def segment(self, case: CaseInput, output_path: Path) -> ProviderResult: ...

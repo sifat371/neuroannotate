@@ -1,69 +1,19 @@
 # NeuroAnnotate
 
-**A local-first AI-assisted brain MRI annotation workspace for reviewing and correcting NIfTI lesion segmentations.**
+NeuroAnnotate is a single-user, local/self-hosted research workspace for importing a
+DWI/ADC/FLAIR NIfTI triad, generating a lesion-mask pre-annotation, editing it in three
+planes, saving immutable revisions, and exporting a portable mask with provenance. The
+default CPU workflow uses a deterministic demonstration provider; the optional GPU workflow
+uses pinned DeepISLES. v1 is NIfTI-only and includes no telemetry.
 
-> **Research and portfolio software.** NeuroAnnotate is not a medical device and must not be used for diagnosis or clinical decision-making.
+## Research-use disclaimer
 
-## Demo
+NeuroAnnotate is research software only. It is not a medical device and must not be used for
+diagnosis, treatment, or clinical decision-making. The demonstration provider is not a trained
+medical model. Review every artifact independently and follow the governance requirements that
+apply to your data and research.
 
-NeuroAnnotate turns a multimodal MRI case into an end-to-end annotation workflow:
-
-```text
-DWI + ADC + FLAIR
-       ↓
-three-plane MRI viewer
-       ↓
-deterministic AI pre-annotation
-       ↓
-brush / erase / undo / redo
-       ↓
-immutable revision history
-       ↓
-geometry-preserving NIfTI export
-```
-
-The repository ships with a **fully synthetic brain-MRI demo case**, so no patient data or external model weights are required.
-
-## Features
-
-- NIfTI-only `.nii` / `.nii.gz` workflow focused on DWI, ADC, and FLAIR.
-- Browser-based axial, sagittal, and coronal viewing with Cornerstone3D.
-- Pan, zoom, window/level, slice scrolling, modality switching, and segmentation overlay controls.
-- CPU-only deterministic demo segmentation with no GPU or model download.
-- Pluggable inference boundary ready for a future nnU-Net provider.
-- Brush/erase editing with undo/redo.
-- Immutable annotation revisions with optional notes.
-- Exported masks preserve reference MRI geometry.
-- FastAPI, SQLite metadata, local filesystem artifacts, Docker Compose, tests, and CI.
-
-## Why this project
-
-Medical-imaging ML demos often stop at notebooks or static predictions. NeuroAnnotate focuses on the software between model output and a usable human review workflow: data validation, browser visualization, inference orchestration, editing, provenance, and export.
-
-That makes it a practical engineering companion to biomedical-ML work without claiming clinical readiness.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    UI[React + Cornerstone3D] --> API[FastAPI]
-    API --> DB[(SQLite metadata)]
-    API --> FS[(Local NIfTI storage)]
-    API --> P[SegmentationProvider]
-    P --> D[Deterministic demo]
-    P -. adapter .-> N[nnU-Net]
-```
-
-See [docs/architecture.md](docs/architecture.md) for the data and annotation round-trip details.
-
-## Tech stack
-
-**Frontend:** React 19, TypeScript, Vite, Zustand, Cornerstone3D 5  
-**Backend:** Python 3.11+, FastAPI, SQLAlchemy 2, NumPy, SciPy, NiBabel  
-**Persistence:** SQLite metadata + local NIfTI artifacts  
-**Delivery:** Docker Compose + GitHub Actions
-
-## Quick start
+## Quick Start
 
 Requirements: Docker with Compose and `make`.
 
@@ -73,105 +23,73 @@ cd neuroannotate
 cp .env.example .env
 make demo-data
 make seed-demo
-make dev
+docker compose up --build
 ```
 
-Open:
+Open the app at `http://localhost:5173` or the API documentation at
+`http://localhost:8000/docs`. This default CPU/demo path downloads normal build dependencies,
+not model weights. See the [demo walkthrough](docs/demo.md) and
+[troubleshooting guide](docs/troubleshooting.md).
 
-- App: `http://localhost:5173`
-- API: `http://localhost:8000`
-- OpenAPI: `http://localhost:8000/docs`
+## GPU Quick Start
 
-The first Docker build downloads normal project dependencies, but **does not download any model weights**.
-
-## Demo workflow
-
-1. Open **NeuroAnnotate Demo**.
-2. Switch between DWI, ADC, and FLAIR.
-3. Navigate axial/sagittal/coronal MRI views.
-4. Run **AI Segmentation**.
-5. Adjust overlay visibility/opacity.
-6. Brush or erase part of the mask.
-7. Undo/redo the change.
-8. Save an immutable revision.
-9. Reload a revision.
-10. Export the corrected `.nii.gz` mask.
-
-Detailed walkthrough: [docs/demo.md](docs/demo.md).
-
-## API docs
-
-When the backend is running, interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
-
-Core routes:
-
-```text
-GET  /api/cases
-POST /api/cases
-POST /api/cases/{id}/modalities/{DWI|ADC|FLAIR}
-POST /api/cases/{id}/segment
-GET  /api/cases/{id}/segmentations/latest/file
-GET  /api/cases/{id}/revisions
-POST /api/cases/{id}/revisions
-GET  /api/cases/{id}/export?revision_id=<id>
-```
-
-## Project structure
-
-```text
-backend/      FastAPI, NIfTI validation, inference, revisions, export
-frontend/     React/TypeScript + Cornerstone3D annotation workspace
-data/         local runtime metadata/artifacts (ignored)
-sample_data/  generated synthetic MRI demo volumes (ignored)
-docs/         architecture and demo documentation
-scripts/      end-to-end smoke verification
-```
-
-## Testing
-
-With Docker:
+The optional provider is DeepISLES and requires an NVIDIA GPU, a compatible driver, NVIDIA
+Container Toolkit, substantial disk space, and network access for a first-start model download.
+Set `NEUROANNOTATE_INFERENCE_PROVIDER=deepisles` in `.env`, then run:
 
 ```bash
-make test
-make lint
-bash scripts/smoke.sh
+docker compose --profile gpu up
 ```
 
-Backend-only development without Docker:
+The profile adds a private-network DeepISLES service and a persistent model cache. It downloads
+approximately 9.1 GB of weights on first start. This GPU path has not been executed on this host
+because no licensed DWI/ADC/FLAIR validation triad was supplied. Follow [the GPU setup and
+validation guide](docs/gpu.md), including its `make validate-gpu` procedure, before relying on
+the integration in your own research environment.
+
+## Workflow
+
+1. Import exactly one DWI, ADC, and FLAIR NIfTI as an atomic case.
+2. Queue a persisted CPU demo or optional DeepISLES inference job.
+3. Review the DWI-native binary mask and edit it with brush/erase and undo/redo.
+4. Save a complete immutable revision; unsaved edits remain visibly dirty.
+5. Export only a saved, clean revision as `lesion-mask.nii.gz`, `provenance.json`, and a ZIP
+   containing those two files.
+
+See [workflow details](docs/workflow.md) and the [provenance contract](docs/provenance.md).
+
+## Architecture
+
+The React/Cornerstone3D frontend talks to a FastAPI service backed by SQLite metadata and local
+NIfTI artifact storage. A provider boundary selects the deterministic CPU demo or the optional
+private-network DeepISLES service; inference jobs are durable and asynchronous.
+
+See [architecture details](docs/architecture.md).
+
+## Testing and contributing
+
+Run the complete local verification gate with:
 
 ```bash
-cd backend
-pip install ".[dev]"
-pytest -v
-ruff check app tests
+make verify
 ```
 
-Frontend-only development:
+The repository also provides `make test`, `make lint`, and `bash scripts/smoke.sh`. GPU
+validation is separate because it requires suitable hardware, model weights, and a licensed
+input triad. Development setup, focused commands, scope, and review expectations are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-cd frontend
-npm install
-npm test -- --run
-npm run lint
-npm run build
-```
+## Citation
 
-## Limitations
+Release citation metadata is in [CITATION.cff](CITATION.cff). GitHub and compatible citation
+tools can render it; update the version and release date for future releases. No claim of JOSS
+eligibility is made. Eligibility must be checked against the then-current JOSS policy if a
+submission is considered.
 
-- v1 supports NIfTI only; DICOM and PACS are intentionally out of scope.
-- No authentication, collaboration, or cloud storage.
-- Geometry mismatch is rejected rather than automatically registered/resampled.
-- The built-in segmentation provider is a deterministic image-processing demo, **not a trained medical model**.
-- nnU-Net is represented by an adapter boundary; weights and real inference are not bundled.
-- No uncertainty, failure prediction, active learning, or LLM assistance in v1.
+## License and third-party attribution
 
-## Roadmap
-
-- Real nnU-Net/other model adapter with explicit model packaging.
-- Annotator productivity telemetry and correction analytics.
-- Risk-aware review prioritization after real failure cases are collected.
-- DICOM/PACS and collaboration only if the local NIfTI workflow proves useful.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+NeuroAnnotate is distributed under the [MIT License](LICENSE). The optional GPU image fetches
+[`ezequieldlrosa/DeepIsles`](https://github.com/ezequieldlrosa/DeepIsles) at commit
+`7658b608fc0d890cf14448ff3e58c47ad5c761e7`; that upstream project is Apache-2.0 licensed.
+DeepISLES model weights are obtained separately from Zenodo and are never committed here.
+Third-party packages and model artifacts remain subject to their own licenses and terms.

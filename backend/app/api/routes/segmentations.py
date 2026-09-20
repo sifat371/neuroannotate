@@ -1,4 +1,6 @@
+import hashlib
 import json
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import FileResponse
@@ -6,24 +8,26 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import ApiError
-from app.db.models import InferenceRun
+from app.db.models import InferenceJob, SegmentationArtifact, new_uuid
 from app.db.session import get_session
 from app.repositories.cases import CaseRepository
 from app.services.cases import REQUIRED_MODALITIES, require_case
 from app.services.inference.base import CaseInput
 from app.services.inference.registry import get_provider
+from app.services.nifti import inspect_nifti
 from app.services.storage import Storage
 
 router = APIRouter(prefix="/api/cases", tags=["segmentations"])
 
 
-def _read(run: InferenceRun) -> dict:
+def _read(run: InferenceJob) -> dict:
+    provenance = json.loads(run.provenance_json or "{}")
     return {
         "id": run.id,
         "case_id": run.case_id,
         "provider": run.provider,
         "status": run.status,
-        "metadata": json.loads(run.metadata_json or "{}"),
+        "metadata": provenance.get("configuration", provenance),
         "created_at": run.created_at,
     }
 
@@ -32,7 +36,7 @@ def _read(run: InferenceRun) -> dict:
 def segment(case_id: str, session: Session = Depends(get_session)):
     repo = CaseRepository(session)
     case = require_case(repo, case_id)
-    available = {modality.modality for modality in case.modalities}
+    available = {artifact.modality for artifact in case.source_artifacts}
     if available != REQUIRED_MODALITIES:
         raise ApiError(
             409,
@@ -41,20 +45,67 @@ def segment(case_id: str, session: Session = Depends(get_session)):
         )
 
     storage = Storage(settings.data_dir)
+    provider = get_provider()
+    if getattr(provider, "requires_async", False):
+        raise ApiError(
+            409,
+            "async_provider_required",
+            "This provider must be run through inference-jobs",
+        )
     paths = {
-        modality.modality: storage.resolve(modality.relative_path)
-        for modality in case.modalities
+        artifact.modality: storage.resolve(artifact.relative_path)
+        for artifact in case.source_artifacts
     }
     output = storage.inference_path(case_id)
-    result = get_provider().segment(CaseInput(case_id, paths), output)
+    result = provider.segment(CaseInput(case_id, paths), output)
+    metadata = inspect_nifti(result.mask_path)
+    with result.mask_path.open("rb") as file_handle:
+        sha256 = hashlib.file_digest(file_handle, "sha256").hexdigest()
+    job_id = new_uuid()
+    completed_at = datetime.now(UTC)
+    provenance = {
+        "sources": [
+            {
+                "id": artifact.id,
+                "modality": artifact.modality,
+                "sha256": artifact.sha256,
+            }
+            for artifact in sorted(
+                case.source_artifacts, key=lambda artifact: artifact.modality
+            )
+        ],
+        "configuration": result.configuration,
+        "runtime": result.runtime,
+        "result": {"sha256": sha256},
+    }
     run = repo.add_inference(
-        InferenceRun(
+        InferenceJob(
+            id=job_id,
             case_id=case_id,
             provider=result.provider,
-            relative_path=storage.relative(result.mask_path),
+            model_name=result.model_name,
+            model_version=result.model_version,
+            service_version=result.service_version,
             status="completed",
-            metadata_json=json.dumps(result.metadata),
-        )
+            started_at=completed_at,
+            completed_at=completed_at,
+            provenance_json=json.dumps(provenance, allow_nan=False),
+        ),
+        SegmentationArtifact(
+            id=job_id,
+            case_id=case_id,
+            inference_job_id=job_id,
+            relative_path=storage.relative(result.mask_path),
+            sha256=sha256,
+            shape_x=metadata.shape[0],
+            shape_y=metadata.shape[1],
+            shape_z=metadata.shape[2],
+            spacing_x=metadata.spacing[0],
+            spacing_y=metadata.spacing[1],
+            spacing_z=metadata.spacing[2],
+            affine_json=json.dumps(metadata.affine),
+            datatype=metadata.datatype,
+        ),
     )
     return _read(run)
 
@@ -77,7 +128,9 @@ def latest_file(case_id: str, session: Session = Depends(get_session)):
     run = repo.latest_inference(case_id)
     if not run:
         raise ApiError(404, "segmentation_not_found", "No segmentation is available")
-    path = Storage(settings.data_dir).resolve(run.relative_path)
+    if run.segmentation is None:
+        raise ApiError(404, "segmentation_not_found", "No segmentation is available")
+    path = Storage(settings.data_dir).resolve(run.segmentation.relative_path)
     return FileResponse(
         path,
         media_type="application/octet-stream",

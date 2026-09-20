@@ -1,34 +1,84 @@
 import { create } from 'zustand';
+import { createStore } from 'zustand/vanilla';
+import type { StateCreator } from 'zustand/vanilla';
 import type { Modality } from '../types/api';
 
 export type EditingTool = 'brush' | 'erase' | 'pan' | 'zoom' | 'windowLevel';
 
-type WorkspaceState = {
+export type WorkspaceState = {
   selectedCaseId: string | null;
-  activeModality: Modality;
+  selectedModality: Modality;
+  loadedSegmentationId: string | null;
+  loadedRevisionId: string | null;
+  baseRevisionId: string | null;
+  dirty: boolean;
+  activeJobId: string | null;
   overlayVisible: boolean;
   overlayOpacity: number;
   activeTool: EditingTool;
-  selectedRevisionId: string | null;
   setSelectedCaseId: (id: string | null) => void;
-  setActiveModality: (modality: Modality) => void;
+  setSelectedModality: (modality: Modality) => void;
+  loadSegmentation: (id: string | null) => void;
+  loadRevision: (id: string | null) => void;
+  markDirty: () => void;
+  setDirty: (dirty: boolean) => void;
+  markRevisionSaved: (id: string, clean?: boolean) => void;
+  setActiveJobId: (id: string | null) => void;
   setOverlayVisible: (visible: boolean) => void;
   setOverlayOpacity: (opacity: number) => void;
   setActiveTool: (tool: EditingTool) => void;
-  setSelectedRevisionId: (id: string | null) => void;
 };
 
-export const useWorkspace = create<WorkspaceState>((set) => ({
+const createWorkspaceState: StateCreator<WorkspaceState> = (set, get) => ({
   selectedCaseId: null,
-  activeModality: 'DWI',
+  selectedModality: 'DWI',
+  loadedSegmentationId: null,
+  loadedRevisionId: null,
+  baseRevisionId: null,
+  dirty: false,
+  activeJobId: null,
   overlayVisible: true,
   overlayOpacity: 0.55,
   activeTool: 'windowLevel',
-  selectedRevisionId: null,
-  setSelectedCaseId: (selectedCaseId) => set({ selectedCaseId, selectedRevisionId: null }),
-  setActiveModality: (activeModality) => set({ activeModality }),
+  setSelectedCaseId: (selectedCaseId) => {
+    if (get().selectedCaseId === selectedCaseId) return;
+    set({
+      selectedCaseId,
+      selectedModality: 'DWI',
+      loadedSegmentationId: null,
+      loadedRevisionId: null,
+      baseRevisionId: null,
+      dirty: false,
+      activeJobId: null,
+    });
+  },
+  setSelectedModality: (selectedModality) => set({ selectedModality }),
+  loadSegmentation: (loadedSegmentationId) => set({
+    loadedSegmentationId,
+    loadedRevisionId: null,
+    baseRevisionId: null,
+    dirty: false,
+  }),
+  loadRevision: (loadedRevisionId) => set({
+    loadedRevisionId,
+    baseRevisionId: loadedRevisionId,
+    dirty: false,
+  }),
+  markDirty: () => set({ dirty: true }),
+  setDirty: (dirty) => set({ dirty }),
+  markRevisionSaved: (revisionId, clean = true) => set({
+    loadedRevisionId: revisionId,
+    baseRevisionId: revisionId,
+    dirty: !clean,
+  }),
+  setActiveJobId: (activeJobId) => set({ activeJobId }),
   setOverlayVisible: (overlayVisible) => set({ overlayVisible }),
   setOverlayOpacity: (overlayOpacity) => set({ overlayOpacity }),
   setActiveTool: (activeTool) => set({ activeTool }),
-  setSelectedRevisionId: (selectedRevisionId) => set({ selectedRevisionId }),
-}));
+});
+
+export function createWorkspaceStore() {
+  return createStore<WorkspaceState>(createWorkspaceState);
+}
+
+export const useWorkspace = create<WorkspaceState>(createWorkspaceState);

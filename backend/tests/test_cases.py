@@ -1,12 +1,14 @@
-def test_create_and_list_case(client):
-    created = client.post("/api/cases", json={"name": "Demo Stroke Case"})
-    assert created.status_code == 201
-    case_id = created.json()["id"]
+from tests.helpers import import_case
+
+
+def test_create_and_list_case(client, tmp_path):
+    created = import_case(client, tmp_path, name="Demo Stroke Case")
+    case_id = created["id"]
 
     listed = client.get("/api/cases")
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()] == [case_id]
-    assert listed.json()[0]["ready_for_inference"] is False
+    assert listed.json()[0]["ready_for_inference"] is True
 
 
 def test_missing_case_uses_stable_error_shape(client):

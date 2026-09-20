@@ -5,11 +5,39 @@ import type { ViewerSession } from './viewer';
 import { VIEWPORT_IDS } from './viewer';
 import { serializeLabelmap, type SerializedLabelmap } from './serializeLabelmap';
 import { waitForVolumeLoad } from './volumeLoading';
+import {
+  isUserSegmentationEditEvent,
+  type SegmentationDataModifiedDetail,
+} from './segmentationEvents';
 
 const { BrushTool, ToolGroupManager, Enums: ToolEnums, segmentation } = cornerstoneTools;
 const { MouseBindings, SegmentationRepresentations } = ToolEnums;
 const { DefaultHistoryMemo } = csUtils.HistoryMemo;
 let brushRegistered = false;
+
+export interface VolumeGeometry {
+  shape: [number, number, number];
+  affine: number[][];
+}
+
+const AFFINE_TOLERANCE = 1e-5;
+
+function isValidGeometry(geometry: VolumeGeometry): boolean {
+  return Array.isArray(geometry?.shape)
+    && geometry.shape.length === 3
+    && geometry.shape.every((dimension) => Number.isInteger(dimension) && dimension > 0)
+    && Array.isArray(geometry?.affine)
+    && geometry.affine.length === 4
+    && geometry.affine.every((row) => Array.isArray(row) && row.length === 4 && row.every(Number.isFinite));
+}
+
+export function canDisplaySegmentationOn(source: VolumeGeometry, dwi: VolumeGeometry): boolean {
+  if (!isValidGeometry(source) || !isValidGeometry(dwi)) return false;
+  return source.shape.every((dimension, index) => dimension === dwi.shape[index])
+    && source.affine.every((row, rowIndex) => row.every(
+      (value, columnIndex) => Math.abs(value - dwi.affine[rowIndex][columnIndex]) <= AFFINE_TOLERANCE,
+    ));
+}
 
 export type EditableSegmentation = {
   segmentationId: string;
@@ -18,12 +46,15 @@ export type EditableSegmentation = {
   visible: boolean;
   opacity: number;
   dirty: boolean;
+  editCount: number;
   setEditingTool: (tool: 'brush' | 'erase' | 'pan' | 'zoom' | 'windowLevel') => void;
+  setBrushSize: (size: number) => void;
   undo: () => void;
   redo: () => void;
   getCurrentLabelmap: () => SerializedLabelmap;
-  markSaved: () => void;
-  replaceFromNifti: (url: string) => Promise<void>;
+  markSaved: (expectedEditCount?: number) => boolean;
+  replaceFromLabelmap: (data: SerializedLabelmap, state?: { dirty: boolean; editCount: number }) => void;
+  replaceFromNifti: (url: string, shouldApply?: () => boolean) => Promise<boolean>;
   destroy: () => void;
 };
 
@@ -34,11 +65,17 @@ function ensureBrushRegistered() {
   }
 }
 
-function copyIntoLabelmap(volumeId: string, sourceData: ArrayLike<number>) {
+function copyIntoLabelmap(volumeId: string, sourceData: ArrayLike<number>, sourceShape?: readonly number[]) {
   const destination = cache.getVolume(volumeId);
   if (!destination?.voxelManager) throw new Error('Editable labelmap volume is unavailable.');
   const expected = destination.dimensions.reduce((total: number, value: number) => total * value, 1);
   if (sourceData.length !== expected) throw new Error('Segmentation geometry does not match the active MRI volume.');
+  if (sourceShape && (
+    sourceShape.length !== 3
+    || sourceShape.some((dimension, index) => dimension !== destination.dimensions[index])
+  )) {
+    throw new Error('Segmentation geometry does not match the active MRI volume.');
+  }
   for (let index = 0; index < expected; index += 1) {
     destination.voxelManager.setAtIndex(index, Number(sourceData[index]) === 0 ? 0 : 1);
   }
@@ -64,6 +101,7 @@ export async function attachLabelmap(
   session: ViewerSession,
   niftiUrl: string,
   sourceInferenceId: string,
+  onEditStateChange?: (dirty: boolean, editCount: number) => void,
 ): Promise<EditableSegmentation> {
   ensureBrushRegistered();
   const segmentationId = `seg-${sourceInferenceId}-${crypto.randomUUID()}`;
@@ -94,14 +132,37 @@ export async function attachLabelmap(
   group.setToolPassive(brushName);
   group.setToolPassive(eraserName);
   let dirty = false;
+  let editCount = 0;
   let visible = true;
   let opacity = 0.55;
+  let suppressDataModified = false;
 
+  const notify = () => onEditStateChange?.(dirty, editCount);
   const dataModified = (event: Event) => {
-    const detail = (event as CustomEvent<{ segmentationId?: string }>).detail;
-    if (detail?.segmentationId === segmentationId) dirty = true;
+    const detail = (event as CustomEvent<SegmentationDataModifiedDetail>).detail;
+    if (!suppressDataModified && isUserSegmentationEditEvent(detail, segmentationId)) {
+      dirty = true;
+      editCount += 1;
+      notify();
+    }
   };
   eventTarget.addEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);
+
+  function withoutCountingDataModified(callback: () => void) {
+    suppressDataModified = true;
+    try {
+      callback();
+    } finally {
+      suppressDataModified = false;
+    }
+  }
+
+  function triggerProgrammaticUpdate() {
+    withoutCountingDataModified(() => {
+      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+    });
+    session.renderingEngine.render();
+  }
 
   const api: EditableSegmentation = {
     segmentationId,
@@ -110,6 +171,7 @@ export async function attachLabelmap(
     get visible() { return visible; },
     get opacity() { return opacity; },
     get dirty() { return dirty; },
+    get editCount() { return editCount; },
     setEditingTool(tool) {
       group.setToolPassive(brushName);
       group.setToolPassive(eraserName);
@@ -125,13 +187,22 @@ export async function attachLabelmap(
         session.setPrimaryTool(map[tool]);
       }
     },
+    setBrushSize(size) {
+      const brushSize = Math.max(1, Math.min(40, Math.round(size)));
+      group.setToolConfiguration(brushName, { brushSize });
+      group.setToolConfiguration(eraserName, { brushSize });
+    },
     undo() {
-      DefaultHistoryMemo.undo();
+      withoutCountingDataModified(() => DefaultHistoryMemo.undo());
       dirty = true;
+      editCount += 1;
+      notify();
     },
     redo() {
-      DefaultHistoryMemo.redo();
+      withoutCountingDataModified(() => DefaultHistoryMemo.redo());
       dirty = true;
+      editCount += 1;
+      notify();
     },
     getCurrentLabelmap() {
       const volume = cache.getVolume(volumeId);
@@ -141,13 +212,34 @@ export async function attachLabelmap(
       }
       return serializeLabelmap(voxelManager.getCompleteScalarDataArray(), volume.dimensions);
     },
-    markSaved() { dirty = false; },
-    async replaceFromNifti(url) {
-      const replacement = await loadMaskData(url, segmentationId);
-      copyIntoLabelmap(volumeId, replacement);
-      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+    markSaved(expectedEditCount = editCount) {
+      if (editCount !== expectedEditCount) {
+        editCount = Math.max(1, editCount - expectedEditCount);
+        dirty = true;
+        notify();
+        return false;
+      }
       dirty = false;
-      session.renderingEngine.render();
+      editCount = 0;
+      notify();
+      return true;
+    },
+    replaceFromLabelmap(data, state = { dirty: false, editCount: 0 }) {
+      copyIntoLabelmap(volumeId, data.voxels, data.shape);
+      triggerProgrammaticUpdate();
+      dirty = state.dirty;
+      editCount = state.editCount;
+      notify();
+    },
+    async replaceFromNifti(url, shouldApply = () => true) {
+      const replacement = await loadMaskData(url, segmentationId);
+      if (!shouldApply()) return false;
+      copyIntoLabelmap(volumeId, replacement);
+      triggerProgrammaticUpdate();
+      dirty = false;
+      editCount = 0;
+      notify();
+      return true;
     },
     destroy() {
       eventTarget.removeEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);

@@ -1,8 +1,6 @@
 import { useState, type ChangeEvent } from 'react';
 import { api, ApiError } from '../../api/client';
-import type { CaseSummary, Modality } from '../../types/api';
-
-const MODALITIES: Modality[] = ['DWI', 'ADC', 'FLAIR'];
+import type { CaseSummary } from '../../types/api';
 
 type Props = {
   selectedCase: CaseSummary | null;
@@ -12,58 +10,57 @@ type Props = {
 
 export function CaseUploadPanel({ selectedCase, onCaseChanged, onCaseCreated }: Props) {
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const [dwi, setDwi] = useState<File | null>(null);
+  const [adc, setAdc] = useState<File | null>(null);
+  const [flair, setFlair] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function createCase() {
-    if (!name.trim()) return;
-    setBusy('create'); setError(null);
+  async function create() {
+    if (!name.trim() || !dwi || !adc || !flair) return;
+    setBusy(true); setError(null);
     try {
-      const item = await api.createCase(name.trim());
-      setName('');
-      onCaseCreated(item);
+      const created = await api.createCase({ name: name.trim(), dwi, adc, flair });
+      onCaseCreated(created);
+      setName(''); setDwi(null); setAdc(null); setFlair(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create case.');
-    } finally { setBusy(null); }
+    } finally { setBusy(false); }
   }
 
-  async function upload(modality: Modality, file: File) {
-    if (!selectedCase) return;
-    setBusy(modality); setError(null);
-    try {
-      onCaseChanged(await api.uploadModality(selectedCase.id, modality, file));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Upload failed.');
-    } finally { setBusy(null); }
-  }
+  void selectedCase;
+  void onCaseChanged;
+  const canCreate = Boolean(name.trim() && dwi && adc && flair && !busy);
+  const files: Array<{ label: string; file: File | null; setFile: (file: File | null) => void }> = [
+    { label: 'DWI', file: dwi, setFile: setDwi },
+    { label: 'ADC', file: adc, setFile: setAdc },
+    { label: 'FLAIR', file: flair, setFile: setFlair },
+  ];
 
   return (
     <section className="panel upload-panel">
       <div className="panel-heading"><div><p className="eyebrow">Data</p><h2>Import NIfTI</h2></div></div>
       <div className="create-row">
-        <input aria-label="New case name" value={name} onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)} placeholder="New case name" />
-        <button type="button" className="secondary-button" onClick={createCase} disabled={!name.trim() || busy === 'create'}>Create</button>
+        <input aria-label="Case name" value={name} onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)} placeholder="Case name" />
+        <button type="button" className="secondary-button" disabled={!canCreate} onClick={() => void create()}>{busy ? 'Creating…' : 'Create Case'}</button>
       </div>
-      {MODALITIES.map((modality) => {
-        const present = selectedCase?.modalities.includes(modality) ?? false;
+      {files.map(({ label, file, setFile }) => {
         return (
-          <label className={`file-drop ${present ? 'complete' : ''}`} key={modality}>
-            <span><strong>{modality} NIfTI</strong><small>{present ? 'Uploaded' : '.nii or .nii.gz'}</small></span>
+          <label className={`file-drop ${file ? 'complete' : ''}`} key={label}>
+            <span><strong>{label} NIfTI</strong><small>{file ? file.name : '.nii or .nii.gz'}</small></span>
             <input
               type="file"
               accept=".nii,.nii.gz"
-              disabled={!selectedCase || present || busy === modality}
+              disabled={busy}
               onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                const file = event.target.files?.[0];
-                if (file) void upload(modality, file);
-                event.currentTarget.value = '';
+                setFile(event.target.files?.[0] ?? null);
               }}
             />
-            <span className="file-action">{busy === modality ? 'Uploading…' : present ? '✓' : 'Choose'}</span>
+            <span className="file-action">{file ? '✓' : 'Choose'}</span>
           </label>
         );
       })}
-      {!selectedCase ? <p className="muted">Select a case before uploading volumes.</p> : null}
+      <p className="muted">ADC and FLAIR stay in their native geometry; a valid mismatch is informational.</p>
       {error ? <p className="error-banner" role="alert">{error}</p> : null}
     </section>
   );

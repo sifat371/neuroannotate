@@ -1,12 +1,13 @@
-import json
+from contextlib import ExitStack
 from pathlib import Path
 
+from fastapi import UploadFile
+
 from app.core.config import settings
-from app.db.models import ModalityArtifact
 from app.db.session import init_db, new_session
 from app.repositories.cases import CaseRepository
 from app.scripts.generate_demo_data import generate_demo_case
-from app.services.nifti import inspect_nifti
+from app.services.cases import import_case_triad
 from app.services.storage import Storage
 
 
@@ -21,24 +22,19 @@ def seed_demo_case() -> str:
         if existing:
             return existing.id
 
-        case = repo.create("NeuroAnnotate Demo")
-        for modality, src in generated.items():
-            dst = storage.modality_path(case.id, modality, True)
-            dst.write_bytes(src.read_bytes())
-            meta = inspect_nifti(dst)
-            repo.add_modality(
-                ModalityArtifact(
-                    case_id=case.id,
-                    modality=modality,
-                    relative_path=storage.relative(dst),
-                    shape_x=meta.shape[0],
-                    shape_y=meta.shape[1],
-                    shape_z=meta.shape[2],
-                    spacing_x=meta.spacing[0],
-                    spacing_y=meta.spacing[1],
-                    spacing_z=meta.spacing[2],
-                    affine_json=json.dumps(meta.affine.tolist()),
+        with ExitStack() as stack:
+            uploads = {
+                modality: UploadFile(
+                    filename=generated[modality].name,
+                    file=stack.enter_context(generated[modality].open("rb")),
                 )
+                for modality in ("DWI", "ADC", "FLAIR")
+            }
+            case = import_case_triad(
+                session,
+                storage,
+                "NeuroAnnotate Demo",
+                uploads,
             )
         return case.id
 
