@@ -48,7 +48,8 @@ export type EditableSegmentation = {
   undo: () => void;
   redo: () => void;
   getCurrentLabelmap: () => SerializedLabelmap;
-  markSaved: () => void;
+  markSaved: (expectedEditCount?: number) => boolean;
+  replaceFromLabelmap: (data: SerializedLabelmap, state?: { dirty: boolean; editCount: number }) => void;
   replaceFromNifti: (url: string, shouldApply?: () => boolean) => Promise<boolean>;
   destroy: () => void;
 };
@@ -60,11 +61,17 @@ function ensureBrushRegistered() {
   }
 }
 
-function copyIntoLabelmap(volumeId: string, sourceData: ArrayLike<number>) {
+function copyIntoLabelmap(volumeId: string, sourceData: ArrayLike<number>, sourceShape?: readonly number[]) {
   const destination = cache.getVolume(volumeId);
   if (!destination?.voxelManager) throw new Error('Editable labelmap volume is unavailable.');
   const expected = destination.dimensions.reduce((total: number, value: number) => total * value, 1);
   if (sourceData.length !== expected) throw new Error('Segmentation geometry does not match the active MRI volume.');
+  if (sourceShape && (
+    sourceShape.length !== 3
+    || sourceShape.some((dimension, index) => dimension !== destination.dimensions[index])
+  )) {
+    throw new Error('Segmentation geometry does not match the active MRI volume.');
+  }
   for (let index = 0; index < expected; index += 1) {
     destination.voxelManager.setAtIndex(index, Number(sourceData[index]) === 0 ? 0 : 1);
   }
@@ -124,12 +131,28 @@ export async function attachLabelmap(
   let editCount = 0;
   let visible = true;
   let opacity = 0.55;
+  let suppressDataModified = false;
 
+  const notify = () => onEditStateChange?.(dirty, editCount);
   const dataModified = (event: Event) => {
     const detail = (event as CustomEvent<{ segmentationId?: string }>).detail;
-    if (detail?.segmentationId === segmentationId) { dirty = true; editCount += 1; onEditStateChange?.(true, editCount); }
+    if (detail?.segmentationId === segmentationId && !suppressDataModified) {
+      dirty = true;
+      editCount += 1;
+      notify();
+    }
   };
   eventTarget.addEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);
+
+  function triggerProgrammaticUpdate() {
+    suppressDataModified = true;
+    try {
+      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+    } finally {
+      suppressDataModified = false;
+    }
+    session.renderingEngine.render();
+  }
 
   const api: EditableSegmentation = {
     segmentationId,
@@ -161,11 +184,15 @@ export async function attachLabelmap(
     },
     undo() {
       DefaultHistoryMemo.undo();
-      dirty = true; editCount += 1; onEditStateChange?.(true, editCount);
+      dirty = true;
+      editCount += 1;
+      notify();
     },
     redo() {
       DefaultHistoryMemo.redo();
-      dirty = true; editCount += 1; onEditStateChange?.(true, editCount);
+      dirty = true;
+      editCount += 1;
+      notify();
     },
     getCurrentLabelmap() {
       const volume = cache.getVolume(volumeId);
@@ -175,14 +202,33 @@ export async function attachLabelmap(
       }
       return serializeLabelmap(voxelManager.getCompleteScalarDataArray(), volume.dimensions);
     },
-    markSaved() { dirty = false; editCount = 0; onEditStateChange?.(false, editCount); },
+    markSaved(expectedEditCount = editCount) {
+      if (editCount !== expectedEditCount) {
+        editCount = Math.max(1, editCount - expectedEditCount);
+        dirty = true;
+        notify();
+        return false;
+      }
+      dirty = false;
+      editCount = 0;
+      notify();
+      return true;
+    },
+    replaceFromLabelmap(data, state = { dirty: false, editCount: 0 }) {
+      copyIntoLabelmap(volumeId, data.voxels, data.shape);
+      triggerProgrammaticUpdate();
+      dirty = state.dirty;
+      editCount = state.editCount;
+      notify();
+    },
     async replaceFromNifti(url, shouldApply = () => true) {
       const replacement = await loadMaskData(url, segmentationId);
       if (!shouldApply()) return false;
       copyIntoLabelmap(volumeId, replacement);
-      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
-      dirty = false; editCount = 0; onEditStateChange?.(false, editCount);
-      session.renderingEngine.render();
+      triggerProgrammaticUpdate();
+      dirty = false;
+      editCount = 0;
+      notify();
       return true;
     },
     destroy() {

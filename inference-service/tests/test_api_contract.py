@@ -163,3 +163,89 @@ def test_final_mask_location_requires_one_pinned_output(client, tmp_path):
     (duplicate / "lesion_msk.nii.gz").write_bytes(b"two")
     with pytest.raises(RuntimeError, match="exactly one"):
         locate_final_ensemble_mask(tmp_path)
+
+
+def test_segment_keeps_health_responsive_while_model_runs(client, monkeypatch):
+    """A long synchronous model call must not block the FastAPI event loop."""
+    import concurrent.futures
+    import threading
+
+    from app import main
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def delayed_runner(dwi, _adc, _flair, output_dir):
+        started.set()
+        assert release.wait(2), "test did not release the fake model"
+        dwi_image = nib.load(dwi)
+        output = output_dir / "lesion_msk.nii.gz"
+        output.write_bytes(
+            _nifti_bytes(
+                shape=dwi_image.shape,
+                affine=dwi_image.affine,
+                data=np.zeros(dwi_image.shape, dtype=np.uint8),
+                dtype=np.uint8,
+            )
+        )
+        return output
+
+    monkeypatch.setattr(main, "run_deepisles", delayed_runner)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        segment_future = pool.submit(client.post, "/v1/segment", files=_uploads())
+        assert started.wait(1)
+        health_future = pool.submit(client.get, "/health")
+        try:
+            health = health_future.result(timeout=0.4)
+        except concurrent.futures.TimeoutError:
+            health = None
+        finally:
+            release.set()
+        segment_response = segment_future.result(timeout=3)
+
+    assert health is not None, "health request was blocked by model inference"
+    assert health.status_code == 200
+    assert segment_response.status_code == 200
+
+
+def test_segment_serializes_model_execution(client, monkeypatch):
+    """Offloaded requests must still enforce one model execution at a time."""
+    import concurrent.futures
+    import threading
+    import time
+
+    from app import main
+
+    state_lock = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def delayed_runner(dwi, _adc, _flair, output_dir):
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.08)
+            dwi_image = nib.load(dwi)
+            output = output_dir / "lesion_msk.nii.gz"
+            output.write_bytes(
+                _nifti_bytes(
+                    shape=dwi_image.shape,
+                    affine=dwi_image.affine,
+                    data=np.zeros(dwi_image.shape, dtype=np.uint8),
+                    dtype=np.uint8,
+                )
+            )
+            return output
+        finally:
+            with state_lock:
+                active -= 1
+
+    monkeypatch.setattr(main, "run_deepisles", delayed_runner)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(client.post, "/v1/segment", files=_uploads()) for _ in range(2)]
+        responses = [future.result(timeout=3) for future in futures]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert max_active == 1

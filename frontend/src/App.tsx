@@ -10,9 +10,10 @@ import { ViewerGrid } from './features/viewer/ViewerGrid';
 import { ExportPanel } from './features/exports/ExportPanel';
 import { SystemStatus } from './features/system/SystemStatus';
 import { useWorkspace } from './state/workspace';
-import type { CaseSummary, InferenceJob, Modality, SystemHealth } from './types/api';
+import type { CaseSummary, InferenceJob, Modality, Revision, SystemHealth } from './types/api';
 
 const modalities: Modality[] = ['DWI', 'ADC', 'FLAIR'];
+const HEALTH_POLL_MS = 5000;
 
 export default function App() {
   const workspace = useWorkspace();
@@ -23,7 +24,8 @@ export default function App() {
   const [activeJob, setActiveJob] = useState<InferenceJob | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [segmentation, setSegmentation] = useState<EditableSegmentation | null>(null);
-  const [revisionUrl, setRevisionUrl] = useState<string | null>(null);
+  const [baseMaskUrl, setBaseMaskUrl] = useState<string | null>(null);
+  const [revisionLoadPending, setRevisionLoadPending] = useState(false);
   const [unsavedEditCount, setUnsavedEditCount] = useState(0);
   const selectedCaseIdRef = useRef<string | null>(workspace.selectedCaseId);
   selectedCaseIdRef.current = workspace.selectedCaseId;
@@ -36,31 +38,64 @@ export default function App() {
     }).catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load cases.')).finally(() => setLoadingCases(false));
   }, []);
 
-  useEffect(() => { void api.getSystemHealth().then(setHealth).catch(() => setHealth(null)); }, []);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => {
+      void api.getSystemHealth().then((next) => {
+        if (live) setHealth(next);
+      }).catch(() => {
+        if (live) setHealth(null);
+      });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, HEALTH_POLL_MS);
+    return () => { live = false; window.clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setInference(null); setActiveJob(null); setSegmentation(null); setRevisionUrl(null); setUnsavedEditCount(0);
+    setInference(null);
+    setActiveJob(null);
+    setSegmentation(null);
+    setBaseMaskUrl(null);
+    setRevisionLoadPending(false);
+    setUnsavedEditCount(0);
     if (!selectedCase) return;
     const caseId = selectedCase.id;
     void api.listInferenceJobs(caseId).then((jobs) => {
-      if (cancelled) return;
-      const next = jobs.find((job) => job.status === 'queued' || job.status === 'running')
-        ?? [...jobs].reverse().find((job) => job.status === 'completed' && job.segmentation_id)
-        ?? null;
-      if (next) handleJobChange(next, caseId);
+      if (cancelled || selectedCaseIdRef.current !== caseId) return;
+      // API order is newest-first. Keep the latest attempt visible even if it
+      // failed, while independently restoring the newest usable segmentation.
+      const latestAttempt = jobs[0] ?? null;
+      const latestCompleted = jobs.find((job) => job.status === 'completed' && job.segmentation_id) ?? null;
+      if (latestAttempt) {
+        setActiveJob(latestAttempt);
+        workspace.setActiveJobId(latestAttempt.id);
+      }
+      if (latestCompleted?.segmentation_id) {
+        setInference({ sourceInferenceId: latestCompleted.id, segmentationId: latestCompleted.segmentation_id });
+        workspace.loadSegmentation(latestCompleted.segmentation_id);
+        setBaseMaskUrl(api.segmentationFileUrl(latestCompleted.segmentation_id));
+      }
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [selectedCase?.id]);
 
   function handleJobChange(job: InferenceJob, expectedCaseId = selectedCaseIdRef.current) {
     if (job.case_id !== expectedCaseId || job.case_id !== selectedCaseIdRef.current) return;
-    setActiveJob(job); workspace.setActiveJobId(job.id);
-    if (job.status === 'completed' && job.segmentation_id) {
-      setInference({ sourceInferenceId: job.id, segmentationId: job.segmentation_id });
-      workspace.loadSegmentation(job.segmentation_id);
-      setRevisionUrl(null);
-    }
+    setActiveJob(job);
+    workspace.setActiveJobId(job.id);
+  }
+
+  function loadCompletedJob(job: InferenceJob) {
+    if (job.case_id !== selectedCaseIdRef.current || job.status !== 'completed' || !job.segmentation_id) return;
+    if (job.segmentation_id !== workspace.loadedSegmentationId && workspace.dirty && !window.confirm('Unsaved mask edits will be discarded. Load the new AI segmentation?')) return;
+    setSegmentation(null);
+    setInference({ sourceInferenceId: job.id, segmentationId: job.segmentation_id });
+    workspace.loadSegmentation(job.segmentation_id);
+    setBaseMaskUrl(api.segmentationFileUrl(job.segmentation_id));
+    setRevisionLoadPending(false);
+    setUnsavedEditCount(0);
   }
 
   function upsertCase(item: CaseSummary) {
@@ -91,6 +126,17 @@ export default function App() {
     setUnsavedEditCount(count);
   }
 
+  function revisionSaved(revision: Revision, clean: boolean) {
+    workspace.markRevisionSaved(revision.id, clean);
+    setBaseMaskUrl(api.revisionFileUrl(revision.id));
+  }
+
+  function revisionLoaded(revision: Revision) {
+    workspace.loadRevision(revision.id);
+    setBaseMaskUrl(api.revisionFileUrl(revision.id));
+    setUnsavedEditCount(0);
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -114,12 +160,22 @@ export default function App() {
             </div>
           </div>
           <AnnotationToolbar segmentation={segmentation} activeTool={workspace.activeTool} onToolChange={workspace.setActiveTool} baseLabel={workspace.baseRevisionId ? `Revision ${workspace.baseRevisionId}` : inference ? 'AI segmentation' : 'No segmentation'} unsavedEditCount={unsavedEditCount} />
-          <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} revisionUrl={revisionUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} onEditStateChange={updateEditState} />
+          <ViewerGrid selectedCase={selectedCase} modality={workspace.selectedModality} inference={inference} baseMaskUrl={baseMaskUrl} overlayVisible={workspace.overlayVisible} overlayOpacity={workspace.overlayOpacity} activeTool={workspace.activeTool} onSegmentationChanged={setSegmentation} onEditStateChange={updateEditState} />
         </section>
         <aside className="right-rail">
-          <InferenceControls selectedCase={selectedCase} job={activeJob} onJobChange={handleJobChange} health={health} />
-          <RevisionPanel caseId={selectedCase?.id ?? null} sourceInferenceId={inference?.sourceInferenceId ?? null} segmentation={segmentation} selectedRevisionId={workspace.loadedRevisionId} dirty={workspace.dirty} onDirtyChange={setDirtyState} onSelectedRevisionId={workspace.loadRevision} onLoadRevision={setRevisionUrl} />
-          <ExportPanel caseId={selectedCase?.id ?? null} revision={workspace.loadedRevisionId ? { id: workspace.loadedRevisionId } : null} dirty={workspace.dirty} />
+          <InferenceControls selectedCase={selectedCase} job={activeJob} onJobChange={handleJobChange} health={health} loadedSegmentationId={workspace.loadedSegmentationId} onLoadCompleted={loadCompletedJob} />
+          <RevisionPanel
+            caseId={selectedCase?.id ?? null}
+            sourceInferenceId={inference?.sourceInferenceId ?? null}
+            segmentation={segmentation}
+            selectedRevisionId={workspace.loadedRevisionId}
+            dirty={workspace.dirty}
+            onDirtyChange={setDirtyState}
+            onRevisionSaved={revisionSaved}
+            onRevisionLoaded={revisionLoaded}
+            onLoadPendingChange={setRevisionLoadPending}
+          />
+          <ExportPanel caseId={selectedCase?.id ?? null} revision={workspace.loadedRevisionId ? { id: workspace.loadedRevisionId } : null} dirty={workspace.dirty} pending={revisionLoadPending} />
           <SystemStatus health={health} />
           <section className="panel shortcut-panel"><p className="eyebrow">Shortcuts</p><div><kbd>⌘/Ctrl Z</kbd><span>Undo</span></div><div><kbd>⇧ ⌘/Ctrl Z</kbd><span>Redo</span></div><div><kbd>Wheel</kbd><span>Change slice</span></div></section>
         </aside>

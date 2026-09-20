@@ -50,6 +50,7 @@ def run_migrations(database_url: str) -> None:
     """Upgrade the database at ``database_url`` to the latest schema."""
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
+    config.attributes["database_url_override"] = database_url
     command.upgrade(config, "head")
 
 

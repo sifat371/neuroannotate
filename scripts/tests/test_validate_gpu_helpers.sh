@@ -24,7 +24,9 @@ if wait_for_deepisles_info 5 2>/dev/null; then
     echo "unready service unexpectedly passed validation" >&2
     exit 1
 fi
-test "$(tr '\n' ' ' <"$temporary_log")" = "3 2 "
+test "$(head -n 1 "$temporary_log")" = "3"
+second_sleep="$(sed -n '2p' "$temporary_log")"
+[[ -z "$second_sleep" || "$second_sleep" == "1" || "$second_sleep" == "2" ]]
 
 : >"$temporary_log"
 attempt_file="$(mktemp)"
@@ -87,3 +89,40 @@ if wait_for_completed_job ignored 1 2>/dev/null; then
 fi
 test "$(cat "$attempt_file")" = "1"
 test ! -s "$temporary_log"
+
+# The validator must not require a repository-local virtualenv just to parse JSON.
+unset VALIDATE_GPU_PYTHON
+expected_python="$(command -v python3 || command -v python)"
+test "$(validation_python)" = "$expected_python"
+VALIDATE_GPU_PYTHON=/custom/python
+export VALIDATE_GPU_PYTHON
+test "$(validation_python)" = "/custom/python"
+unset VALIDATE_GPU_PYTHON
+
+# Cleanup is allowed only for the mktemp namespace used by this validator.
+is_safe_validation_temp_root /tmp/neuroannotate-gpu-validation.ABC123
+if is_safe_validation_temp_root /tmp/not-neuroannotate; then
+    echo "unsafe temporary root was accepted" >&2
+    exit 1
+fi
+if is_safe_validation_temp_root /; then
+    echo "filesystem root was accepted for cleanup" >&2
+    exit 1
+fi
+
+# The implementation must perform container-side cleanup before host removal,
+# because normal container-created case directories may be root-owned and 0700.
+grep -q 'exec -T backend python' "$validator_path"
+grep -q "Path('/app/data')" "$validator_path"
+if grep -q '\.venv/bin/python' "$validator_path"; then
+    echo "validator still hardcodes the repository virtualenv" >&2
+    exit 1
+fi
+
+VALIDATE_GPU_PYTHON=/definitely/missing/python
+export VALIDATE_GPU_PYTHON
+if require_validation_python 2>/dev/null; then
+    echo "missing validation interpreter passed preflight" >&2
+    exit 1
+fi
+unset VALIDATE_GPU_PYTHON

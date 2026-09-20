@@ -38,7 +38,11 @@ class DemoSegmentationProvider:
                 mask = keep[labels]
             mask = mask.astype(np.uint8)
         try:
-            save_volume(output_path, mask, dwi_img.affine, dtype=np.uint8)
+            save_volume(
+                output_path, mask, dwi_img.affine, dtype=np.uint8,
+                spacing=dwi_img.spacing,
+                spatial_units=dwi_img.spatial_units,
+            )
         except OSError as exc:
             raise ProviderOutputPersistenceError(
                 "Could not write demo segmentation output"

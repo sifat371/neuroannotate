@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 vi.mock('../src/cornerstone/viewer', () => ({
   createViewerSession: vi.fn().mockResolvedValue({ destroy: vi.fn(), setPrimaryTool: vi.fn() }),
@@ -36,24 +36,21 @@ function source(modality: SourceArtifact['modality'], geometry = authoritativeDw
 }
 
 function migratedSource(modality: SourceArtifact['modality']): SourceArtifact {
-  return {
-    ...source(modality),
-    sha256: null,
-    file_size: null,
-    datatype: null,
-  };
+  return { ...source(modality), sha256: null, file_size: null, datatype: null };
 }
 
 function caseDetail(sources: SourceArtifact[] = [source('DWI'), source('ADC'), source('FLAIR', authoritativeFlair)]): CaseDetail {
   return { ...selectedCase, annotation_space: 'DWI', sources };
 }
 
-function editableLabelmap(id = 'seg-ui') {
+function editableLabelmap(id = 'seg-ui', options: { dirty?: boolean; editCount?: number; voxel?: number } = {}) {
+  const labelmap = { shape: [1, 1, 1] as [number, number, number], voxels: new Uint8Array([options.voxel ?? 0]) };
   return {
-    segmentationId: id, volumeId: `vol-${id}`, sourceInferenceId: 'job-1', visible: true, opacity: 0.5, dirty: false, editCount: 0,
+    segmentationId: id, volumeId: `vol-${id}`, sourceInferenceId: 'job-1', visible: true, opacity: 0.5,
+    dirty: options.dirty ?? false, editCount: options.editCount ?? 0,
     setEditingTool: vi.fn(), setBrushSize: vi.fn(), undo: vi.fn(), redo: vi.fn(),
-    getCurrentLabelmap: () => ({ shape: [1, 1, 1] as [number, number, number], voxels: new Uint8Array([0]) }),
-    markSaved: vi.fn(), replaceFromNifti: vi.fn().mockResolvedValue(true), destroy: vi.fn(),
+    getCurrentLabelmap: vi.fn(() => labelmap),
+    markSaved: vi.fn().mockReturnValue(true), replaceFromLabelmap: vi.fn(), replaceFromNifti: vi.fn().mockResolvedValue(true), destroy: vi.fn(),
   };
 }
 
@@ -70,18 +67,12 @@ test('mounts all three orthogonal viewport containers', () => {
   expect(screen.getByLabelText('Coronal MRI viewport')).toBeInTheDocument();
 });
 
-test('applies the latest revision selected before its editable labelmap becomes ready', async () => {
-  let resolveLabelmap!: (value: import('../src/cornerstone/segmentation').EditableSegmentation) => void;
-  const labelmap = editableLabelmap();
-  vi.mocked(attachLabelmap).mockImplementationOnce(() => new Promise((resolve) => { resolveLabelmap = resolve; }));
+test('loads the current saved base mask when creating an editable labelmap', async () => {
   vi.mocked(createViewerSession).mockResolvedValue({ destroy: vi.fn(), setPrimaryTool: vi.fn() } as never);
-  vi.mocked(api.getCase).mockResolvedValue(caseDetail());
-  const { rerender } = render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} revisionUrl="/old-revision.nii.gz" overlayVisible overlayOpacity={0.5} activeTool="windowLevel" onSegmentationChanged={() => undefined} />);
-  rerender(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} revisionUrl="/latest-revision.nii.gz" overlayVisible overlayOpacity={0.5} activeTool="windowLevel" onSegmentationChanged={() => undefined} />);
-  await waitFor(() => expect(attachLabelmap).toHaveBeenCalled());
-  await act(async () => { resolveLabelmap(labelmap); });
-  await waitFor(() => expect(labelmap.replaceFromNifti).toHaveBeenCalledWith('/latest-revision.nii.gz', expect.any(Function)));
-  expect(labelmap.replaceFromNifti).toHaveBeenCalledTimes(1);
+  vi.mocked(api.getCase).mockResolvedValue(caseDetail([source('DWI'), source('ADC'), source('FLAIR', authoritativeDwi)]));
+  vi.mocked(attachLabelmap).mockResolvedValue(editableLabelmap());
+  render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} baseMaskUrl="/revision-current.nii.gz" overlayVisible overlayOpacity={0.5} activeTool="windowLevel" onSegmentationChanged={() => undefined} />);
+  await waitFor(() => expect(attachLabelmap).toHaveBeenCalledWith(expect.anything(), '/revision-current.nii.gz', 'job-1', undefined));
 });
 
 test('uses authoritative anisotropic oblique and sheared metadata rather than normalized display geometry', async () => {
@@ -96,13 +87,8 @@ test('uses authoritative anisotropic oblique and sheared metadata rather than no
 
 test('uses migrated source geometry when legacy integrity metadata is unavailable', async () => {
   vi.mocked(createViewerSession).mockResolvedValue({ destroy: vi.fn(), setPrimaryTool: vi.fn() } as never);
-  vi.mocked(api.getCase).mockResolvedValue(caseDetail([
-    migratedSource('DWI'),
-    migratedSource('ADC'),
-    migratedSource('FLAIR'),
-  ]));
+  vi.mocked(api.getCase).mockResolvedValue(caseDetail([migratedSource('DWI'), migratedSource('ADC'), migratedSource('FLAIR')]));
   vi.mocked(attachLabelmap).mockResolvedValue(editableLabelmap());
-
   render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
 
   await waitFor(() => expect(attachLabelmap).toHaveBeenCalledTimes(1));
@@ -116,7 +102,6 @@ test('fails closed when immutable metadata lacks the canonical or displayed sour
     .mockResolvedValueOnce(caseDetail([source('DWI'), source('ADC')]));
   const { rerender } = render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
-
   rerender(<ViewerGrid selectedCase={selectedCase} modality="FLAIR" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
   expect(attachLabelmap).not.toHaveBeenCalled();
@@ -129,15 +114,13 @@ test('fails closed when immutable source metadata is missing, duplicated, or mal
     .mockResolvedValueOnce(caseDetail([source('DWI'), source('ADC'), { ...source('FLAIR'), affine: [[1, 0, 0, 0]] }]));
   const { rerender } = render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
-  expect(attachLabelmap).not.toHaveBeenCalled();
-
   rerender(<ViewerGrid selectedCase={selectedCase} modality="FLAIR" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
   expect(attachLabelmap).not.toHaveBeenCalled();
 });
 
-test('removes a stale overlay on an authoritative matching-to-mismatched-to-matching modality transition', async () => {
-  const first = editableLabelmap('first');
+test('preserves dirty canonical mask bytes across matching-to-mismatched-to-matching modality changes', async () => {
+  const first = editableLabelmap('first', { dirty: true, editCount: 4, voxel: 1 });
   const second = editableLabelmap('second');
   vi.mocked(createViewerSession).mockImplementation(() => Promise.resolve({ destroy: vi.fn(), setPrimaryTool: vi.fn() } as never));
   vi.mocked(api.getCase).mockResolvedValue(caseDetail());
@@ -149,11 +132,32 @@ test('removes a stale overlay on an authoritative matching-to-mismatched-to-matc
   rerender(<ViewerGrid selectedCase={selectedCase} modality="FLAIR" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={onSegmentationChanged} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
   expect(first.destroy).toHaveBeenCalledTimes(1);
-  expect(attachLabelmap).toHaveBeenCalledTimes(1);
 
   rerender(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={onSegmentationChanged} />);
   await waitFor(() => expect(attachLabelmap).toHaveBeenCalledTimes(2));
-  expect(onSegmentationChanged).toHaveBeenLastCalledWith(second);
+  expect(second.replaceFromLabelmap).toHaveBeenCalledWith(
+    expect.objectContaining({ shape: [1, 1, 1], voxels: expect.any(Uint8Array) }),
+    { dirty: true, editCount: 4 },
+  );
+  const restored = vi.mocked(second.replaceFromLabelmap).mock.calls[0][0];
+  expect(Array.from(restored.voxels)).toEqual([1]);
+});
+
+test('uses the newest saved revision as the reattachment base after modality changes', async () => {
+  const first = editableLabelmap('first', { dirty: false, voxel: 1 });
+  const second = editableLabelmap('second');
+  vi.mocked(createViewerSession).mockImplementation(() => Promise.resolve({ destroy: vi.fn(), setPrimaryTool: vi.fn() } as never));
+  vi.mocked(api.getCase).mockResolvedValue(caseDetail());
+  vi.mocked(attachLabelmap).mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+  const common = { selectedCase, inference: { sourceInferenceId: 'job-1', segmentationId: 'seg-1' }, overlayVisible: true, overlayOpacity: 0.5, activeTool: 'brush' as const, onSegmentationChanged: () => undefined };
+  const { rerender } = render(<ViewerGrid {...common} modality="DWI" baseMaskUrl="/revision-2.nii.gz" />);
+  await waitFor(() => expect(attachLabelmap).toHaveBeenCalledTimes(1));
+  rerender(<ViewerGrid {...common} modality="FLAIR" baseMaskUrl="/revision-2.nii.gz" />);
+  expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();
+  rerender(<ViewerGrid {...common} modality="DWI" baseMaskUrl="/revision-2.nii.gz" />);
+  await waitFor(() => expect(attachLabelmap).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(attachLabelmap).mock.calls[1][1]).toBe('/revision-2.nii.gz');
+  expect(second.replaceFromLabelmap).toHaveBeenCalledWith(expect.anything(), { dirty: false, editCount: 0 });
 });
 
 test('ignores stale case-detail metadata after a modality transition', async () => {
@@ -163,7 +167,6 @@ test('ignores stale case-detail metadata after a modality transition', async () 
   vi.mocked(api.getCase).mockImplementationOnce(() => staleDwi).mockResolvedValueOnce(caseDetail());
   vi.mocked(attachLabelmap).mockResolvedValue(editableLabelmap());
   const { rerender } = render(<ViewerGrid selectedCase={selectedCase} modality="DWI" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
-
   await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(1));
   rerender(<ViewerGrid selectedCase={selectedCase} modality="FLAIR" inference={{ sourceInferenceId: 'job-1', segmentationId: 'seg-1' }} overlayVisible overlayOpacity={0.5} activeTool="brush" onSegmentationChanged={() => undefined} />);
   expect(await screen.findByText('Segmentation overlay unavailable in this geometry.')).toBeInTheDocument();

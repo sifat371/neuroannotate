@@ -7,7 +7,35 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
 
 validation_python() {
-    printf '%s\n' "${VALIDATE_GPU_PYTHON:-${repo_dir}/.venv/bin/python}"
+    if [[ -n "${VALIDATE_GPU_PYTHON:-}" ]]; then
+        printf '%s\n' "$VALIDATE_GPU_PYTHON"
+        return
+    fi
+    command -v python3 2>/dev/null || command -v python 2>/dev/null || return 1
+}
+
+require_validation_python() {
+    local interpreter
+    interpreter="$(validation_python)" || { echo "Python 3 is required for GPU validation helpers" >&2; return 1; }
+    [[ -x "$interpreter" ]] || { echo "GPU validation Python is not executable: $interpreter" >&2; return 1; }
+    "$interpreter" -c 'import json' >/dev/null 2>&1 || {
+        echo "GPU validation Python cannot run the standard json module: $interpreter" >&2
+        return 1
+    }
+}
+
+json_field() {
+    local field="$1"
+    "$(validation_python)" -c "import json, sys; print(json.load(sys.stdin)${field})"
+}
+
+is_safe_validation_temp_root() {
+    local root="${1:-}"
+    [[ "$root" == /tmp/neuroannotate-gpu-validation.* && "$root" != "/" ]]
+}
+
+container_cleanup_validation_data() {
+    "${compose[@]}" exec -T backend python -c "from pathlib import Path; import shutil; root=Path('/app/data'); [(shutil.rmtree(p) if p.is_dir() and not p.is_symlink() else p.unlink(missing_ok=True)) for p in list(root.iterdir())]"
 }
 
 deepisles_info_ready() {
@@ -127,13 +155,17 @@ main() {
     done
 
     cd "$repo_dir"
+    require_validation_python
 
     project="neuroannotate-gpu-validate"
     temporary_data="$(mktemp -d -t neuroannotate-gpu-validation.XXXXXX)"
     compose=(docker compose -p "$project" --profile gpu)
     cleanup() {
-        "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
-        rm -rf -- "$temporary_data"
+        if is_safe_validation_temp_root "$temporary_data"; then
+            container_cleanup_validation_data >/dev/null 2>&1 || true
+            "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
+            rm -rf -- "$temporary_data" 2>/dev/null || true
+        fi
     }
     trap cleanup EXIT
 
@@ -141,11 +173,6 @@ main() {
     export NEUROANNOTATE_INFERENCE_PROVIDER="deepisles"
     export NEUROANNOTATE_DEEPISLES_URL="http://deepisles:8080"
 
-    json_field() {
-        local field="$1"
-        "${repo_dir}/.venv/bin/python" -c \
-            "import json, sys; print(json.load(sys.stdin)${field})"
-    }
 
     "${compose[@]}" up -d --build
     local startup_deadline=$((SECONDS + MAX_VALIDATION_SECONDS))
@@ -176,7 +203,7 @@ main() {
         "http://localhost:8000/api/segmentations/${segmentation_id}/file.nii.gz" >"$segmentation_path"
 
     voxels_path="${temporary_data}/voxels.bin"
-    shape="$("${repo_dir}/.venv/bin/python" - "$segmentation_path" "$voxels_path" <<'PY'
+    shape="$("${compose[@]}" exec -T backend python - /app/data/segmentation.nii.gz /app/data/voxels.bin <<'PY'
 import json
 import sys
 
@@ -216,7 +243,8 @@ PY
     curl --fail --silent --show-error --max-time 120 \
         "http://localhost:8000/api/exports/${export_id}/provenance" >"$provenance_path"
 
-    "${repo_dir}/.venv/bin/python" - "$test_case/dwi.nii.gz" "$mask_path" "$bundle_path" "$provenance_path" <<'PY'
+    cp -- "${test_case}/dwi.nii.gz" "${temporary_data}/validation-dwi.nii.gz"
+    "${compose[@]}" exec -T backend python - /app/data/validation-dwi.nii.gz /app/data/export-mask.nii.gz /app/data/export.zip /app/data/provenance.json <<'PY'
 import json
 import sys
 import zipfile

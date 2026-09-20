@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import shutil
@@ -23,6 +24,7 @@ from app.runner import run_deepisles
 
 app = FastAPI(title="NeuroAnnotate DeepISLES Service")
 _EXPECTED_FIELDS = frozenset(("dwi", "adc", "flair"))
+_INFERENCE_LOCK = asyncio.Lock()
 _CONFIGURATION = {
     "skull_strip": False,
     "fast": False,
@@ -116,7 +118,10 @@ async def segment(request: Request) -> Response:
         output_dir.mkdir()
         started = perf_counter()
         try:
-            mask_path = run_deepisles(paths[0], paths[1], paths[2], output_dir)
+            async with _INFERENCE_LOCK:
+                mask_path = await asyncio.to_thread(
+                    run_deepisles, paths[0], paths[1], paths[2], output_dir
+                )
         except HTTPException:
             raise
         except Exception as exc:

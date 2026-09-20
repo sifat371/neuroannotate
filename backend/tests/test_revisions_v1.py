@@ -66,6 +66,7 @@ def _write_nifti_with_header_spacing(
     image = nib.Nifti1Image(np.asarray(data, dtype=dtype), affine)
     image.header.set_data_dtype(dtype)
     image.header.set_zooms(spacing)
+    image.header.set_xyzt_units('mm')
     nib.save(image, str(path))
 
 
@@ -314,13 +315,6 @@ def test_revision_preserves_dwi_header_spacing_and_uses_it_for_volume(
     )
     base_path = settings.data_dir / segmentation.relative_path
     base = load_volume(base_path).data.astype(np.uint8)
-    _write_nifti_with_header_spacing(
-        base_path,
-        base,
-        affine,
-        dwi_spacing,
-        np.uint8,
-    )
     with new_session() as session:
         dwi = session.scalar(
             select(SourceArtifact).where(
@@ -367,7 +361,10 @@ def test_revision_rejects_base_spacing_that_differs_from_dwi(
         header_spacing=(2.0, 3.0, 4.0),
     )
     base = load_volume(settings.data_dir / segmentation.relative_path)
-    assert base.spacing == pytest.approx((1.0, 1.0, 1.0))
+    _write_nifti_with_header_spacing(
+        settings.data_dir / segmentation.relative_path,
+        base.data, np.eye(4), (1.0, 1.0, 1.0), np.uint8,
+    )
 
     response = _save_revision(
         client,

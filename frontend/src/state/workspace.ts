@@ -22,7 +22,7 @@ export type WorkspaceState = {
   loadRevision: (id: string | null) => void;
   markDirty: () => void;
   setDirty: (dirty: boolean) => void;
-  markRevisionSaved: (id: string) => void;
+  markRevisionSaved: (id: string, clean?: boolean) => void;
   setActiveJobId: (id: string | null) => void;
   setOverlayVisible: (visible: boolean) => void;
   setOverlayOpacity: (opacity: number) => void;
@@ -66,10 +66,10 @@ const createWorkspaceState: StateCreator<WorkspaceState> = (set, get) => ({
   }),
   markDirty: () => set({ dirty: true }),
   setDirty: (dirty) => set({ dirty }),
-  markRevisionSaved: (revisionId) => set({
+  markRevisionSaved: (revisionId, clean = true) => set({
     loadedRevisionId: revisionId,
     baseRevisionId: revisionId,
-    dirty: false,
+    dirty: !clean,
   }),
   setActiveJobId: (activeJobId) => set({ activeJobId }),
   setOverlayVisible: (overlayVisible) => set({ overlayVisible }),

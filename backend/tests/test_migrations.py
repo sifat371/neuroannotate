@@ -250,3 +250,33 @@ def test_migrations_create_a_fresh_database_and_are_idempotent(tmp_path: Path) -
         } <= set(inspect(engine).get_table_names())
     finally:
         engine.dispose()
+
+
+def test_make_migrate_honors_configured_database_url(tmp_path: Path) -> None:
+    import os
+    import subprocess
+
+    repository_root = Path(__file__).resolve().parents[2]
+    target = tmp_path / "configured.db"
+    default_db = repository_root / "backend" / "neuroannotate.db"
+    default_existed = default_db.exists()
+    env = os.environ.copy()
+    env["NEUROANNOTATE_DATABASE_URL"] = f"sqlite:///{target}"
+
+    result = subprocess.run(
+        ["make", "migrate"],
+        cwd=repository_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert target.exists()
+    engine = create_engine(f"sqlite:///{target}")
+    try:
+        assert "alembic_version" in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+    assert default_db.exists() is default_existed

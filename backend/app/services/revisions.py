@@ -102,6 +102,15 @@ def create_revision(
     if dwi is None:
         raise ApiError(409, "case_not_ready", "DWI is required before saving a revision")
     dwi_metadata = _source_metadata(dwi)
+    dwi_volume = load_volume(storage.resolve(dwi.relative_path))
+    unit_scale = {"mm": 1.0, "meter": 1000.0, "micron": 0.001}.get(
+        dwi_volume.spatial_units
+    )
+    if unit_scale is None:
+        raise ApiError(
+            422, "unsupported_spatial_units",
+            "DWI spatial units must be mm, meter, or micron to report volume in mL",
+        )
     if shape != dwi_metadata.shape:
         raise ApiError(
             422,
@@ -163,7 +172,10 @@ def create_revision(
     base_metadata = validate_source_nifti(base_path)
     assert_compatible_geometry(dwi_metadata, base_metadata)
     _assert_compatible_spacing(dwi_metadata, base_metadata)
-    parent = load_volume(base_path).data
+    parent_volume = load_volume(base_path)
+    if parent_volume.spatial_units != dwi_volume.spatial_units:
+        raise ApiError(422, "incompatible_geometry", "Mask spatial units do not match DWI")
+    parent = parent_volume.data
     output_path = storage.revision_path(case_id)
     if output_path.exists():
         raise ApiError(409, "revision_path_exists", "Revision artifact already exists")
@@ -178,6 +190,7 @@ def create_revision(
                 np.asarray(dwi_metadata.affine),
                 dtype=np.uint8,
                 spacing=dwi_metadata.spacing,
+                spatial_units=dwi_volume.spatial_units,
             )
             saved_metadata = validate_source_nifti(temporary_path)
             assert_compatible_geometry(dwi_metadata, saved_metadata)
@@ -192,7 +205,7 @@ def create_revision(
             stats = compute_revision_stats(
                 parent,
                 saved.data,
-                voxel_volume_mm3=float(np.prod(dwi_metadata.spacing)),
+                voxel_volume_mm3=float(np.prod(dwi_metadata.spacing)) * unit_scale**3,
             )
             digest = sha256_file(temporary_path)
             _publish_without_overwrite(temporary_path, output_path)
