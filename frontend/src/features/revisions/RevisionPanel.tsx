@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { EditableSegmentation } from '../../cornerstone/segmentation';
+import { toNiftiVoxelOrder } from '../../cornerstone/serializeLabelmap';
 import type { Revision } from '../../types/api';
 
 type Props = {
@@ -76,7 +77,7 @@ export function RevisionPanel({
     const originatingSegmentation = segmentation;
     const originatingBaseRevisionId = selectedRevisionId;
     const snapshotEditCount = segmentation.editCount;
-    const data = segmentation.getCurrentLabelmap();
+    const data = toNiftiVoxelOrder(segmentation.getCurrentLabelmap());
     const requestId = saveRequest.current + 1;
     saveRequest.current = requestId;
     setBusy(true);

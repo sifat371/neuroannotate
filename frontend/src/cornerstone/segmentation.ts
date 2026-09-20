@@ -5,6 +5,10 @@ import type { ViewerSession } from './viewer';
 import { VIEWPORT_IDS } from './viewer';
 import { serializeLabelmap, type SerializedLabelmap } from './serializeLabelmap';
 import { waitForVolumeLoad } from './volumeLoading';
+import {
+  isUserSegmentationEditEvent,
+  type SegmentationDataModifiedDetail,
+} from './segmentationEvents';
 
 const { BrushTool, ToolGroupManager, Enums: ToolEnums, segmentation } = cornerstoneTools;
 const { MouseBindings, SegmentationRepresentations } = ToolEnums;
@@ -135,8 +139,8 @@ export async function attachLabelmap(
 
   const notify = () => onEditStateChange?.(dirty, editCount);
   const dataModified = (event: Event) => {
-    const detail = (event as CustomEvent<{ segmentationId?: string }>).detail;
-    if (detail?.segmentationId === segmentationId && !suppressDataModified) {
+    const detail = (event as CustomEvent<SegmentationDataModifiedDetail>).detail;
+    if (!suppressDataModified && isUserSegmentationEditEvent(detail, segmentationId)) {
       dirty = true;
       editCount += 1;
       notify();
@@ -144,13 +148,19 @@ export async function attachLabelmap(
   };
   eventTarget.addEventListener(ToolEnums.Events.SEGMENTATION_DATA_MODIFIED, dataModified);
 
-  function triggerProgrammaticUpdate() {
+  function withoutCountingDataModified(callback: () => void) {
     suppressDataModified = true;
     try {
-      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+      callback();
     } finally {
       suppressDataModified = false;
     }
+  }
+
+  function triggerProgrammaticUpdate() {
+    withoutCountingDataModified(() => {
+      segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+    });
     session.renderingEngine.render();
   }
 
@@ -183,13 +193,13 @@ export async function attachLabelmap(
       group.setToolConfiguration(eraserName, { brushSize });
     },
     undo() {
-      DefaultHistoryMemo.undo();
+      withoutCountingDataModified(() => DefaultHistoryMemo.undo());
       dirty = true;
       editCount += 1;
       notify();
     },
     redo() {
-      DefaultHistoryMemo.redo();
+      withoutCountingDataModified(() => DefaultHistoryMemo.redo());
       dirty = true;
       editCount += 1;
       notify();
