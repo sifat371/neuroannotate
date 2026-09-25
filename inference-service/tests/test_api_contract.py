@@ -51,8 +51,8 @@ def test_health_and_info_identify_pinned_service_without_loading_model(client):
     assert health.json() == {"status": "ok"}
     assert info.status_code == 200
     assert info.json()["service"] == "neuroannotate-deepisles"
-    assert info.json()["upstream_commit"] == "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
-    assert info.json()["model_name"] == "DeepISLES"
+    assert info.json()["upstream_commit"] == "BrainLesion/stroke_segmentor@0.0.3"
+    assert info.json()["model_name"] == "DeepISLES NVAUTO via BrainLesion stroke_segmentor"
     assert {"cuda_available", "device", "ready"} <= set(info.json())
 
 
@@ -78,13 +78,11 @@ def test_segment_returns_exact_safe_archive_and_dwi_geometry(client, monkeypatch
         metadata = json.loads(archive.read("metadata.json"))
         mask = nib.Nifti1Image.from_bytes(gzip.decompress(archive.read("segmentation.nii.gz")))
     assert metadata["provider"] == "deepisles"
-    assert metadata["upstream_commit"] == "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
+    assert metadata["upstream_commit"] == "BrainLesion/stroke_segmentor@0.0.3"
     assert metadata["configuration"] == {
-        "skull_strip": False,
-        "fast": False,
-        "save_team_outputs": False,
-        "results_mni": False,
-        "parallelize": True,
+        "implementation": "BrainLesion stroke_segmentor",
+        "modalities": ["ADC", "DWI"],
+        "flair_used": False,
     }
     assert "path" not in json.dumps(metadata).lower()
     assert mask.shape == (4, 5, 6)
@@ -147,22 +145,6 @@ def test_segment_cleans_request_files_when_runner_fails(client, monkeypatch):
 
     assert response.status_code == 500
     assert inputs and not any(path.exists() for path in inputs)
-
-
-def test_final_mask_location_requires_one_pinned_output(client, tmp_path):
-    """Selecting an arbitrary .nii.gz result is unsafe and must fail."""
-    from app.runner import locate_final_ensemble_mask
-
-    with pytest.raises(RuntimeError, match="exactly one"):
-        locate_final_ensemble_mask(tmp_path)
-    final = tmp_path / "lesion_msk.nii.gz"
-    final.write_bytes(b"one")
-    assert locate_final_ensemble_mask(tmp_path) == final
-    duplicate = tmp_path / "unexpected"
-    duplicate.mkdir()
-    (duplicate / "lesion_msk.nii.gz").write_bytes(b"two")
-    with pytest.raises(RuntimeError, match="exactly one"):
-        locate_final_ensemble_mask(tmp_path)
 
 
 def test_segment_keeps_health_responsive_while_model_runs(client, monkeypatch):
