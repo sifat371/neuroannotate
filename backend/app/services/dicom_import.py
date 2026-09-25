@@ -78,7 +78,11 @@ def _safe_extract_zip(archive_path: Path, destination: Path) -> None:
                     )
             archive.extractall(destination)
     except zipfile.BadZipFile as exc:
-        raise ApiError(422, "invalid_dicom_archive", "The uploaded file is not a valid ZIP") from exc
+        raise ApiError(
+            422,
+            "invalid_dicom_archive",
+            "The uploaded file is not a valid ZIP",
+        ) from exc
 
 
 def _series_text(value: object) -> str:
@@ -208,7 +212,10 @@ def select_required_series(series: list[DicomSeries]) -> dict[str, DicomSeries]:
             raise ApiError(
                 422,
                 "ambiguous_required_series",
-                f"Multiple MR series are equally likely to be {modality}; manual selection is required",
+                (
+                    f"Multiple MR series are equally likely to be {modality}; "
+                    "manual selection is required"
+                ),
             )
         selected[modality] = best
 
@@ -279,7 +286,10 @@ def _convert_series(series: DicomSeries, modality: str, work_dir: Path) -> Path:
         raise ApiError(
             422,
             "dicom_conversion_ambiguous",
-            f"{modality} conversion produced {len(outputs)} NIfTI volumes; manual series selection is required",
+            (
+                f"{modality} conversion produced {len(outputs)} NIfTI volumes; "
+                "manual series selection is required"
+            ),
         )
     return outputs[0]
 
