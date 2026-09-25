@@ -37,16 +37,14 @@ services:
     profiles: ["gpu"]
     build:
       context: ./inference-service
-    environment:
-      NEUROANNOTATE_DEEPISLES_COMMIT: 7658b608fc0d890cf14448ff3e58c47ad5c761e7
     volumes:
       - deepisles-model-cache:/models
     healthcheck:
-      test: ["CMD", "python3.8", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 20s
+      start_period: 60s
     deploy:
       resources:
         reservations:
