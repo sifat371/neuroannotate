@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
-from app.metadata import MODEL_NAME, MODEL_VERSION, UPSTREAM_COMMIT, runtime_metadata, service_info
+from app.metadata import MODEL_NAME, MODEL_VERSION, SERVICE_NAME, SERVICE_VERSION, UPSTREAM_COMMIT, runtime_metadata, service_info
 from app.runner import run_deepisles
 
 app = FastAPI(title="NeuroAnnotate DeepISLES Service")
@@ -57,8 +57,8 @@ def _metadata(duration_seconds: float) -> Dict[str, Any]:
     runtime["duration_seconds"] = duration_seconds
     return {
         "provider": "deepisles",
-        "service": "neuroannotate-deepisles",
-        "service_version": "1.0.0",
+        "service": SERVICE_NAME,
+        "service_version": SERVICE_VERSION,
         "model_name": MODEL_NAME,
         "model_version": MODEL_VERSION,
         "upstream_commit": UPSTREAM_COMMIT,
