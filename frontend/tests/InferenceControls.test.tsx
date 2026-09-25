@@ -7,7 +7,7 @@ import type { SystemHealth } from '../src/types/api';
 
 vi.mock('../src/api/client', async () => {
   const actual = await vi.importActual<typeof import('../src/api/client')>('../src/api/client');
-  return { ...actual, api: { ...actual.api, createInferenceJob: vi.fn(), getInferenceJob: vi.fn(), retryInferenceJob: vi.fn() } };
+  return { ...actual, api: { ...actual.api, createInferenceJob: vi.fn(), getInferenceJob: vi.fn(), getSegmentationMetrics: vi.fn(), retryInferenceJob: vi.fn() } };
 });
 
 const ready = { id: 'c1', name: 'Demo', created_at: '', modalities: ['DWI', 'ADC', 'FLAIR'] as Array<'DWI' | 'ADC' | 'FLAIR'>, ready_for_inference: true };
@@ -23,7 +23,10 @@ const job = (status: 'queued' | 'running' | 'completed' | 'failed') => ({
 });
 
 describe('InferenceControls', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getSegmentationMetrics).mockResolvedValue({ lesion_voxels: 123, lesion_volume_ml: 4.56 });
+  });
 
   test('is disabled for incomplete case', () => {
     render(<InferenceControls selectedCase={{ ...ready, modalities: ['DWI'], ready_for_inference: false }} job={null} onJobChange={() => undefined} health={demoHealth} />);
