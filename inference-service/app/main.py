@@ -20,7 +20,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
-from app.metadata import MODEL_NAME, MODEL_VERSION, SERVICE_NAME, SERVICE_VERSION, UPSTREAM_COMMIT, runtime_metadata, service_info
+from app.metadata import (
+    MODEL_NAME,
+    MODEL_VERSION,
+    SERVICE_NAME,
+    SERVICE_VERSION,
+    UPSTREAM_COMMIT,
+    runtime_metadata,
+    service_info,
+)
 from app.runner import run_deepisles
 
 app = FastAPI(title="NeuroAnnotate DeepISLES Service")
