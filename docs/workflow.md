@@ -1,12 +1,20 @@
 # v1 workflow
 
-NeuroAnnotate is a single-user, local/self-hosted, NIfTI-only research workflow. It has no
-telemetry, authentication, collaboration, DICOM, or PACS integration. It is not a medical device
+NeuroAnnotate is a single-user, local/self-hosted research workflow. It supports a hospital
+DICOM ZIP import path plus the original curated NIfTI triad path. It has no telemetry,
+authentication, collaboration, or PACS integration. It is not a medical device
 and is not for diagnosis, treatment, or clinical decision-making.
 
-## 1. Import an atomic source triad
+## 1. Import a hospital study or atomic source triad
 
-A case is created by one multipart request containing a non-empty case name and exactly one
+The preferred hospital-pilot path accepts one ZIP containing a DICOM brain-MRI study. The
+backend safely extracts the archive in temporary storage, groups MR objects by
+`SeriesInstanceUID`, identifies DWI, ADC, and FLAIR from DICOM series metadata, and refuses
+ambiguous or missing matches. It converts only those selected series with `dcm2niix`, scrubs
+text-bearing NIfTI header fields, then deletes the temporary raw-DICOM workspace. The resulting
+DWI/ADC/FLAIR NIfTIs enter the same immutable case pipeline as manual imports.
+
+The original curated path remains available: a case is created by one multipart request containing a non-empty case name and exactly one
 `dwi`, `adc`, and `flair` upload. Each upload must be a readable, non-empty, three-dimensional
 numeric NIfTI with a finite 4×4 affine and finite voxel spacing, within the configured upload
 limit. `.nii` and `.nii.gz` inputs are accepted; uncompressed inputs are normalized to `.nii.gz`
@@ -23,7 +31,9 @@ DWI defines the canonical annotation geometry. v1 does not register or resample 
 ## 2. Run persisted asynchronous inference
 
 The UI selects the deterministic `demo` provider in the default CPU configuration or
-`deepisles` when the backend is configured for the GPU provider. A submission snapshots the
+`deepisles` when the backend is configured for the GPU provider. The GPU service currently
+uses BrainLesion `stroke_segmentor==0.0.3`, which exposes DeepISLES NVAUTO. The maintained
+model consumes DWI+ADC; FLAIR remains available to the expert in the NeuroAnnotate viewer. A submission snapshots the
 three immutable source artifact IDs and SHA-256 values and returns immediately.
 
 Jobs persist these states:
@@ -34,7 +44,9 @@ queued -> running -> completed
 queued ----------------> failed
 ```
 
-Only a completed job has a segmentation artifact. The sequential local worker verifies the
+Only a completed job has a segmentation artifact. NeuroAnnotate reports deterministic lesion
+volume from the candidate mask and DWI voxel spacing; this is a mask measurement, not a
+diagnosis. The sequential local worker verifies the
 snapshotted source identities/checksums, validates provider output as binary `uint8` in DWI
 geometry, and atomically persists it. A failure remains persisted with a category and message;
 partial output is removed. A job left `running` by an application restart is recovered as
@@ -62,8 +74,8 @@ and saves a new `uint8` NIfTI. A revision is never overwritten.
 
 The first revision points to its source segmentation. A later revision points to its immediate
 parent and keeps the same source-segmentation lineage. A note is optional. Saving clears the
-dirty flag and makes the new revision the editing base. Edit statistics compare the saved mask
-with that immediate base and are descriptive mask statistics only; see
+dirty flag and makes the new revision the editing base. Edit statistics compare the saved mask with that immediate base and include lesion voxel count
+and lesion volume in mL. These are descriptive mask statistics only; see
 [provenance.md](provenance.md).
 
 ## 5. Export a saved revision
