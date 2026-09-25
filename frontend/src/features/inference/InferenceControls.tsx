@@ -23,6 +23,7 @@ export function InferenceControls({
 }: Props) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lesionVolumeMl, setLesionVolumeMl] = useState<number | null>(null);
 
   useEffect(() => {
     if (!job || !activeStatuses.has(job.status)) return;
@@ -36,6 +37,17 @@ export function InferenceControls({
     }, 2000);
     return () => { live = false; window.clearInterval(interval); };
   }, [job?.id, job?.status, onJobChange]);
+
+  useEffect(() => {
+    let live = true;
+    const segmentationId = job?.status === 'completed' ? job.segmentation_id : null;
+    setLesionVolumeMl(null);
+    if (!segmentationId) return () => { live = false; };
+    void api.getSegmentationMetrics(segmentationId).then((metrics) => {
+      if (live) setLesionVolumeMl(metrics.lesion_volume_ml);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [job?.segmentation_id, job?.status]);
 
   const inferenceHealth = health?.inference;
   const gpuMode = inferenceHealth?.mode === 'gpu';
@@ -72,7 +84,7 @@ export function InferenceControls({
   const providerDescription = !inferenceHealth
     ? 'Checking inference provider readiness…'
     : gpuMode
-      ? `DeepISLES ${inferenceHealth.model_version ?? ''} on ${inferenceHealth.device ?? 'an unavailable device'}.`
+      ? `${inferenceHealth.model_name ?? 'Stroke segmentation model'} ${inferenceHealth.model_version ?? ''} on ${inferenceHealth.device ?? 'an unavailable device'}.`
       : inferenceHealth.mode === 'legacy'
         ? 'Legacy nnU-Net provider is unavailable.'
         : inferenceHealth.mode === 'unknown'
@@ -99,6 +111,7 @@ export function InferenceControls({
       </button>
       {canLoadCompleted ? <button className="secondary-button full" type="button" onClick={() => job && onLoadCompleted?.(job)}>Load Segmentation</button> : null}
       {job?.status === 'completed' && job.segmentation_id === loadedSegmentationId ? <p className="muted">This segmentation is loaded.</p> : null}
+      {lesionVolumeMl !== null ? <p className="muted"><strong>AI candidate volume:</strong> {lesionVolumeMl.toFixed(2)} mL</p> : null}
       {job?.status === 'failed' ? <button className="secondary-button full retry-button" type="button" onClick={() => void retry()} disabled={inferenceUnavailable}>Retry inference</button> : null}
       {inferenceUnavailable ? <p className="error-banner">{
         !inferenceHealth
