@@ -15,7 +15,8 @@ from app.core.config import settings
 from app.db.session import get_engine
 
 router = APIRouter(tags=["health"])
-_UPSTREAM_COMMIT = "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
+_UPSTREAM_COMMIT = "BrainLesion/stroke_segmentor@0.0.3"
+_MODEL_VERSION = "stroke-segmentor-0.0.3"
 _HEALTH_TIMEOUT_SECONDS = 2.0
 _DATABASE_PROBE_WAIT_SECONDS = 0.05
 _DATABASE_PROBE_CACHE_SECONDS = 1.0
@@ -128,7 +129,7 @@ def _deepisles_health() -> dict[str, Any]:
             for key in required_strings
         )
         or payload["upstream_commit"] != _UPSTREAM_COMMIT
-        or payload["model_version"] != _UPSTREAM_COMMIT
+        or payload["model_version"] != _MODEL_VERSION
         or payload.get("cuda_available") is not True
         or payload.get("ready") is not True
     ):
