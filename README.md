@@ -2,11 +2,14 @@
 
 > **Development status:** active pre-release development. No stable version has been tagged yet.
 
-NeuroAnnotate is a single-user, local/self-hosted research workspace for importing a
-DWI/ADC/FLAIR NIfTI triad, generating a lesion-mask pre-annotation, editing it in three
-planes, saving immutable revisions, and exporting a portable mask with provenance. The
+NeuroAnnotate is a single-user, local/self-hosted research workspace for importing a hospital
+brain-MRI DICOM ZIP or a curated DWI/ADC/FLAIR NIfTI triad, generating an ischemic-stroke
+lesion pre-annotation, quantifying the candidate lesion, editing it in three planes, saving
+immutable revisions, and exporting a portable mask with provenance. Hospital ZIP import
+automatically identifies DWI, ADC, and FLAIR and converts only those series locally. The
 default CPU workflow uses a deterministic demonstration provider; the optional GPU workflow
-uses pinned DeepISLES. v1 is NIfTI-only and includes no telemetry.
+uses the maintained BrainLesion `stroke_segmentor` package (DeepISLES NVAUTO). No telemetry
+is included.
 
 ## Research-use disclaimer
 
@@ -35,26 +38,27 @@ not model weights. See the [demo walkthrough](docs/demo.md) and
 
 ## GPU Quick Start
 
-The optional provider is DeepISLES and requires an NVIDIA GPU, a compatible driver, NVIDIA
-Container Toolkit, substantial disk space, and network access for a first-start model download.
+The optional GPU provider uses DeepISLES NVAUTO through BrainLesion `stroke_segmentor`
+0.0.3 and requires an NVIDIA GPU, a compatible driver, NVIDIA Container Toolkit, persistent
+model storage, and network access for first-start weight download.
 Set `NEUROANNOTATE_INFERENCE_PROVIDER=deepisles` in `.env`, then run:
 
 ```bash
 docker compose --profile gpu up
 ```
 
-The profile adds a private-network DeepISLES service and a persistent model cache. It downloads
-approximately 9.1 GB of weights on first start. This GPU path has not been executed on this host
-because no licensed DWI/ADC/FLAIR validation triad was supplied. Follow [the GPU setup and
-validation guide](docs/gpu.md), including its `make validate-gpu` procedure, before relying on
-the integration in your own research environment.
+The profile adds a private-network inference service and a persistent model cache. The current
+container uses a Blackwell-capable PyTorch/CUDA build. This GPU path still requires an
+end-to-end validation run on the actual deployment GPU and governed MRI data before a hospital
+observer study. Follow [the GPU setup and validation guide](docs/gpu.md), including its
+`make validate-gpu` procedure.
 
 ## Workflow
 
-1. Import exactly one DWI, ADC, and FLAIR NIfTI as an atomic case.
-2. Queue a persisted CPU demo or optional DeepISLES inference job.
-3. Review the DWI-native binary mask and edit it with brush/erase and undo/redo.
-4. Save a complete immutable revision; unsaved edits remain visibly dirty.
+1. Import one hospital DICOM ZIP (auto-selecting DWI/ADC/FLAIR) or an explicit NIfTI triad.
+2. Queue a persisted CPU demo or optional GPU stroke pre-segmentation job.
+3. Review the DWI-native binary candidate mask and its lesion-volume measurement.
+4. Correct the mask with brush/erase and undo/redo; saved revisions report corrected volume.
 5. Export only a saved, clean revision as `lesion-mask.nii.gz`, `provenance.json`, and a ZIP
    containing those two files.
 
@@ -90,8 +94,8 @@ submission is considered.
 
 ## License and third-party attribution
 
-NeuroAnnotate is distributed under the [MIT License](LICENSE). The optional GPU image fetches
-[`ezequieldlrosa/DeepIsles`](https://github.com/ezequieldlrosa/DeepIsles) at commit
-`7658b608fc0d890cf14448ff3e58c47ad5c761e7`; that upstream project is Apache-2.0 licensed.
-DeepISLES model weights are obtained separately from Zenodo and are never committed here.
-Third-party packages and model artifacts remain subject to their own licenses and terms.
+NeuroAnnotate is distributed under the [MIT License](LICENSE). The optional GPU service pins
+BrainLesion `stroke-segmentor==0.0.3`, which exposes the DeepISLES NVAUTO algorithm and is
+Apache-2.0 licensed upstream. Model weights are obtained separately at runtime and are never
+committed here. Third-party packages and model artifacts remain subject to their own licenses
+and terms.
