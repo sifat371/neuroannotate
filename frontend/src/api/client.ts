@@ -24,6 +24,11 @@ export type CreateDicomCaseInput = {
   study: File;
 };
 
+export type SegmentationMetrics = {
+  lesion_voxels: number;
+  lesion_volume_ml: number;
+};
+
 export type SaveRevisionInput = {
   data: SerializedLabelmap;
   note?: string;
@@ -117,6 +122,10 @@ export function getInferenceJob(jobId: string): Promise<InferenceJob> {
   return request<InferenceJob>(`/api/inference-jobs/${jobId}`);
 }
 
+export function getSegmentationMetrics(segmentationId: string): Promise<SegmentationMetrics> {
+  return request<SegmentationMetrics>(`/api/segmentations/${segmentationId}/metrics`);
+}
+
 export function retryInferenceJob(jobId: string): Promise<InferenceJob> {
   return request<InferenceJob>(`/api/inference-jobs/${jobId}/retry`, { method: 'POST' });
 }
@@ -180,6 +189,7 @@ export const api = {
   createInferenceJob,
   listInferenceJobs,
   getInferenceJob,
+  getSegmentationMetrics,
   retryInferenceJob,
   listProviders,
   getSystemHealth,
