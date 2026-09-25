@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly DEEPISLES_COMMIT='7658b608fc0d890cf14448ff3e58c47ad5c761e7'
+readonly DEEPISLES_COMMIT='BrainLesion/stroke_segmentor@0.0.3'
+readonly MODEL_VERSION='stroke-segmentor-0.0.3'
 readonly MAX_VALIDATION_SECONDS=1800
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
@@ -44,7 +45,8 @@ import json
 import sys
 
 info = json.load(sys.stdin)
-assert info["upstream_commit"] == "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
+assert info["upstream_commit"] == "BrainLesion/stroke_segmentor@0.0.3"
+assert info["model_version"] == "stroke-segmentor-0.0.3"
 assert info["cuda_available"] is True
 assert isinstance(info["device"], str) and info["device"]
 assert info["ready"] is True
@@ -75,7 +77,7 @@ sleep_bounded() {
 
 fetch_service_info() {
     local timeout="$1"
-    "${compose[@]}" exec -T deepisles python3.8 -c \
+    "${compose[@]}" exec -T deepisles python -c \
         "import json, urllib.request; print(json.dumps(json.load(urllib.request.urlopen('http://localhost:8080/v1/info', timeout=${timeout}))))"
 }
 
@@ -266,7 +268,7 @@ with zipfile.ZipFile(sys.argv[3]) as bundle:
 with open(sys.argv[4], encoding="utf-8") as stream:
     provenance = json.load(stream)
 assert provenance["ai_segmentation"]["provider"] == "deepisles"
-assert provenance["ai_segmentation"]["model_version"] == "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
+assert provenance["ai_segmentation"]["model_version"] == "stroke-segmentor-0.0.3"
 PY
 
     echo "PASS: DeepISLES GPU validation completed"
