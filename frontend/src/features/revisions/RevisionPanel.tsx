@@ -159,6 +159,7 @@ export function RevisionPanel({
             <span>Revision {revisions.length - index}</span>
             <small>{new Date(revision.created_at).toLocaleString()}</small>
             {revision.note ? <small>{revision.note}</small> : null}
+            <small>Lesion volume: {Number(revision.edit_stats.lesion_volume_ml ?? 0).toFixed(2)} mL</small>
             <small>Added {revision.edit_stats.added_voxels ?? 0} · Removed {revision.edit_stats.removed_voxels ?? 0}</small>
             <small>Base: {revision.parent_revision_id ? `Revision ${revision.parent_revision_id}` : 'AI segmentation'}</small>
           </button>
