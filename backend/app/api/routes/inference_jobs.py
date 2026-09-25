@@ -1,6 +1,6 @@
+import numpy as np
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-import numpy as np
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
