@@ -1,52 +1,36 @@
-# Optional DeepISLES GPU provider
+# Optional stroke-segmentation GPU provider
 
-The v1 optional real-model provider is DeepISLES. The default `docker compose up` remains the
-CPU-only deterministic demo and does not download model weights. The GPU profile adds a
-DeepISLES service on the private Compose network; it does not publish that service's port to the
-host.
+The default `docker compose up` remains the CPU-only deterministic demo and does not download
+model weights. The `gpu` profile adds a private inference service that uses BrainLesion
+`stroke_segmentor==0.0.3`, a maintained package exposing the DeepISLES NVAUTO ischemic-stroke
+segmentation model.
 
-This integration is research software only. It is not for diagnosis, treatment, or clinical
-decision-making. The GPU path has not been executed on this host because no licensed
-DWI/ADC/FLAIR validation triad was supplied.
+This integration is research software only. It produces an AI candidate lesion mask for expert
+review/correction and is not a diagnostic endpoint.
 
-## Pinned inputs
+## Pinned runtime
 
-- Upstream: [`ezequieldlrosa/DeepIsles`](https://github.com/ezequieldlrosa/DeepIsles)
-- Upstream license: Apache-2.0
-- Commit: `7658b608fc0d890cf14448ff3e58c47ad5c761e7`
-- Weights: Zenodo record `14026715`, file `stroke_ensemble_weights.7z`
-- Expected MD5: `be5b6dfcd66b55c2e6dc6db9a5880f7f`
-- Download size: approximately 9.1 GB; allow additional space for extraction and images
+- Implementation: BrainLesion `stroke_segmentor==0.0.3`
+- Model family: DeepISLES NVAUTO
+- Package license: Apache-2.0 upstream
+- Required model inputs: DWI and ADC
+- NeuroAnnotate case inputs: DWI, ADC, and FLAIR; FLAIR remains available for expert review
+- Weight source used by the package: Zenodo record `16920681`
+- GPU runtime: PyTorch `2.7.1` CUDA `12.8`
 
-Weights are downloaded at startup and are never committed to this repository. Confirm that the
-upstream license, weight terms, and intended research use are acceptable in your environment.
-
-The committed runner uses these DeepISLES settings:
-
-```text
-skull_strip=False
-fast=False
-save_team_outputs=False
-results_mni=False
-parallelize=True
-```
-
-`results_mni=False` keeps the returned segmentation in native DWI geometry. The service and
-backend independently reject a result that is not finite binary `uint8` data matching the DWI
-shape and affine.
+PyTorch 2.7 is the first stable release line with NVIDIA Blackwell support. The model still has
+to pass `make validate-gpu` on the exact deployment host before it is used in a hospital
+observer study.
 
 ## Host prerequisites
 
-1. An NVIDIA GPU supported by the pinned CUDA 11.3 runtime and a compatible host driver.
+1. NVIDIA GPU and a host driver compatible with the container's CUDA-enabled PyTorch runtime.
 2. Docker Engine with Compose v2.
-3. [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-   installed and configured for Docker.
-4. Network access to GitHub/package registries while building and to Zenodo on first start.
-5. Enough persistent storage for the approximately 9.1 GB archive, extracted weights, Docker
-   layers, and temporary download/extraction files.
+3. NVIDIA Container Toolkit configured for Docker.
+4. Network access to package registries while building and to Zenodo on the first model run.
+5. Persistent disk space for Docker layers and the model checkpoint cache.
 
-Verify Docker can expose the GPU before starting NeuroAnnotate, using an NVIDIA CUDA image
-compatible with your driver according to NVIDIA's toolkit documentation.
+Verify Docker sees the GPU before starting NeuroAnnotate.
 
 ## Start the GPU profile
 
@@ -57,29 +41,27 @@ NEUROANNOTATE_INFERENCE_PROVIDER=deepisles
 NEUROANNOTATE_DEEPISLES_URL=http://deepisles:8080
 ```
 
-Then build and start all services:
+The historical provider key `deepisles` is retained for API compatibility. Runtime provenance
+records the exact maintained implementation and version.
+
+Start the stack:
 
 ```bash
-docker compose --profile gpu up
+docker compose --profile gpu up --build
 ```
 
-Add `--build` when you need to rebuild the local images after source changes.
+The `deepisles-model-cache` named volume is mounted at `/models`. The runner redirects the
+`stroke_segmentor` checkpoint cache to `/models/weights`, so weights downloaded on the first
+inference survive container rebuilds. Once cached, an installation can reuse those weights
+without downloading them again.
 
-The `deepisles-model-cache` named volume is mounted at `/models`. On the first start,
-`fetch_weights.sh` downloads to a temporary file, checks the exact MD5, extracts to a temporary
-directory, publishes `/models/weights`, and writes a readiness marker. The archive itself is not
-retained. Later starts reuse the weights only when both the marker and weights directory exist.
-An interrupted or corrupt download leaves no readiness marker, and the next start retries the
-download and integrity check.
-
-The backend reports GPU readiness at `http://localhost:8000/api/health`. It accepts DeepISLES as
-ready only when the service responds with the pinned commit, reports CUDA available, and reports
-itself ready.
+The backend reports GPU readiness at `http://localhost:8000/api/health`. GPU mode is considered
+ready only when CUDA is available and the private service reports the pinned package identity.
 
 ## End-to-end validation
 
-`make validate-gpu` is intentionally separate from CI and the CPU smoke test. Supply a directory
-containing a licensed triad with these exact names:
+`make validate-gpu` remains intentionally separate from CI because it requires a real GPU and
+governed MRI data. Supply a directory containing:
 
 ```text
 dwi.nii.gz
@@ -87,36 +69,52 @@ adc.nii.gz
 flair.nii.gz
 ```
 
-Run:
+Then run:
 
 ```bash
 NEUROANNOTATE_GPU_TEST_CASE=/absolute/path/to/licensed-triad make validate-gpu
 ```
 
-The validator uses a temporary Compose project and temporary host data directory, waits for
-validated CUDA/service readiness, imports the triad, runs DeepISLES, saves a revision, and checks
-the exported mask/bundle/provenance contract. It has a 30-minute bound and removes the temporary
-project and data afterward; the named model cache persists. Do not use unlicensed or
-inappropriately governed data. A successful run in your environment is required evidence for
-that environment; this repository does not claim that validation has passed on this host.
+The validator creates an isolated Compose project, imports the triad, runs the GPU model, checks
+that the result is finite binary `uint8` data in DWI geometry, saves a revision, and validates
+the exported mask/bundle/provenance contract. A successful run on the deployment GPU is required
+evidence for that environment.
+
+## Hospital DICOM pilot
+
+The application can also accept one hospital DICOM ZIP from the UI. Import happens in the
+backend before inference:
+
+```text
+DICOM ZIP
+  -> safe temporary extraction
+  -> MR series discovery
+  -> DWI / ADC / FLAIR selection
+  -> dcm2niix conversion
+  -> NIfTI header scrub
+  -> immutable NeuroAnnotate case
+  -> GPU pre-segmentation
+  -> expert review / correction
+```
+
+The raw DICOM extraction directory is temporary and is deleted after conversion. For a hospital
+study, use pseudonymous research case names and follow the institution's ethics, access-control,
+retention, and de-identification requirements.
 
 ## Common failures
 
-- **Service remains unavailable:** confirm the `gpu` profile is active, the backend provider is
-  `deepisles`, and `docker compose --profile gpu logs deepisles` shows a running service. The
-  model endpoint is private by design; inspect it from within the Compose network.
-- **CUDA unavailable or no device reserved:** verify `nvidia-smi` on the host, NVIDIA Container
-  Toolkit configuration, Docker daemon restart after toolkit setup, driver/runtime
-  compatibility, and the Compose GPU reservation. CPU fallback is not accepted in GPU mode.
-- **Weight download fails:** check Zenodo connectivity, free space, DNS/proxy settings, and the
-  DeepISLES logs. Startup retries transport failures; a checksum mismatch stops startup rather
-  than using the archive.
-- **Weights repeatedly download:** inspect the `deepisles-model-cache` volume for both
-  `/models/weights` and `/models/.neuroannotate-weights-ready`. Do not hand-create the marker.
-- **Inference job fails:** inspect the persisted failure category/message and service logs. A
-  retry creates a new job; it does not rewrite the failed attempt. Confirm all three source files
-  are readable NIfTI and that the returned mask matches DWI geometry.
-- **Validation rejects the triad:** use an existing directory with all three exact lowercase
-  filenames and ensure the caller has permission to read them.
+- **GPU service unavailable:** verify the `gpu` profile is active, the backend provider is
+  `deepisles`, `nvidia-smi` works on the host, and NVIDIA Container Toolkit is configured.
+- **Model cannot initialize:** inspect `docker compose --profile gpu logs deepisles`; on first
+  inference also verify Zenodo connectivity and free disk space.
+- **DICOM import cannot identify a required series:** NeuroAnnotate deliberately refuses
+  ambiguous series selection. Use the NIfTI triad import as a fallback until manual DICOM series
+  selection is added.
+- **DICOM conversion produces multiple volumes:** use an explicitly curated NIfTI triad for that
+  study and retain the case as a compatibility finding for the importer.
+- **Inference output is rejected:** the returned mask must be binary `uint8` and match DWI
+  shape/affine.
+- **Validation rejects the triad:** make sure all three exact lowercase filenames exist and are
+  readable.
 
 See [troubleshooting.md](troubleshooting.md) for CPU and full-stack checks.
