@@ -20,18 +20,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
-from app.metadata import MODEL_NAME, UPSTREAM_COMMIT, runtime_metadata, service_info
+from app.metadata import MODEL_NAME, MODEL_VERSION, UPSTREAM_COMMIT, runtime_metadata, service_info
 from app.runner import run_deepisles
 
 app = FastAPI(title="NeuroAnnotate DeepISLES Service")
 _EXPECTED_FIELDS = frozenset(("dwi", "adc", "flair"))
 _INFERENCE_LOCK = Lock()
 _CONFIGURATION = {
-    "skull_strip": False,
-    "fast": False,
-    "save_team_outputs": False,
-    "results_mni": False,
-    "parallelize": True,
+    "implementation": "BrainLesion stroke_segmentor",
+    "modalities": ["ADC", "DWI"],
+    "flair_used": False,
 }
 
 
@@ -62,7 +60,7 @@ def _metadata(duration_seconds: float) -> Dict[str, Any]:
         "service": "neuroannotate-deepisles",
         "service_version": "1.0.0",
         "model_name": MODEL_NAME,
-        "model_version": UPSTREAM_COMMIT,
+        "model_version": MODEL_VERSION,
         "upstream_commit": UPSTREAM_COMMIT,
         "configuration": dict(_CONFIGURATION),
         "runtime": runtime,
