@@ -1,37 +1,33 @@
-"""Lazy bridge to the pinned DeepISLES installation inside the GPU image."""
+"""Lazy bridge to the modern BrainLesion stroke_segmentor package."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 
-class DeepISLESRunnerError(RuntimeError):
-    """The pinned model did not produce one unambiguous final mask."""
-
-
-def locate_final_ensemble_mask(output_dir: Path) -> Path:
-    """Locate the sole native final mask copied by pinned DeepISLES output cleanup."""
-    candidates = sorted(Path(output_dir).rglob("lesion_msk.nii.gz"))
-    if len(candidates) != 1:
-        raise DeepISLESRunnerError("Expected exactly one final DeepISLES lesion mask")
-    return candidates[0]
-
-
 def run_deepisles(dwi: Path, adc: Path, flair: Path, output_dir: Path) -> Path:
-    """Run the pinned ensemble with the v1 native-DWI output flags."""
-    from src.isles22_ensemble import IslesEnsemble
+    """Run the DeepISLES NVAUTO model exposed by stroke_segmentor.
 
-    model = IslesEnsemble()
-    model.predict_ensemble(
-        ensemble_path="/opt/deepisles",
-        input_dwi_path=str(dwi),
-        input_adc_path=str(adc),
-        input_flair_path=str(flair),
-        output_path=str(output_dir),
-        skull_strip=False,
-        fast=False,
-        save_team_outputs=False,
-        results_mni=False,
-        parallelize=True,
+    FLAIR remains part of the NeuroAnnotate case/review workspace, but this
+    maintained inference package intentionally uses only DWI and ADC.
+    """
+    del flair
+
+    # Keep downloaded checkpoints outside the container layer so a hospital
+    # installation can initialize once and then run without re-downloading them.
+    import stroke_segmentor.zenodo as zenodo
+
+    zenodo.WEIGHTS_FOLDER = Path("/models/weights")
+
+    from stroke_segmentor.inferer import Inferer
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output = output_dir / "lesion_msk.nii.gz"
+    Inferer().infer(
+        adc_path=adc,
+        dwi_path=dwi,
+        segmentation_path=output,
     )
-    return locate_final_ensemble_mask(output_dir)
+    if not output.is_file():
+        raise RuntimeError("Stroke segmentor did not create a segmentation mask")
+    return output
