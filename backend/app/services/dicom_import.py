@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import nibabel as nib
+import numpy as np
 import pydicom
 from fastapi import UploadFile
 from pydicom.errors import InvalidDicomError
@@ -285,11 +286,13 @@ def _convert_series(series: DicomSeries, modality: str, work_dir: Path) -> Path:
 
 def _scrub_nifti_header(path: Path) -> None:
     image = nib.load(str(path))
+    data = np.asanyarray(image.dataobj).copy()
+    affine = image.affine.copy()
     header = image.header.copy()
     for field_name in ("descrip", "aux_file", "intent_name"):
         if field_name in header:
             header[field_name] = b""
-    nib.save(nib.Nifti1Image(image.dataobj, image.affine, header), str(path))
+    nib.save(nib.Nifti1Image(data, affine, header), str(path))
 
 
 def _stage_archive(upload: UploadFile, destination: Path) -> None:
