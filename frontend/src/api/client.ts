@@ -19,6 +19,11 @@ export type CreateCaseInput = {
   flair: File;
 };
 
+export type CreateDicomCaseInput = {
+  name: string;
+  study: File;
+};
+
 export type SaveRevisionInput = {
   data: SerializedLabelmap;
   note?: string;
@@ -87,6 +92,13 @@ export async function createCase(input: CreateCaseInput): Promise<CaseDetail> {
   body.set('adc', input.adc);
   body.set('flair', input.flair);
   return request<CaseDetail>('/api/cases', { method: 'POST', body });
+}
+
+export async function createDicomCase(input: CreateDicomCaseInput): Promise<CaseDetail> {
+  const body = new FormData();
+  body.set('name', input.name);
+  body.set('study', input.study);
+  return request<CaseDetail>('/api/cases/dicom', { method: 'POST', body });
 }
 
 export function createInferenceJob(caseId: string, provider = 'demo'): Promise<InferenceJob> {
@@ -164,6 +176,7 @@ export const api = {
   listCases: () => request<CaseSummary[]>('/api/cases'),
   getCase: (caseId: string) => request<CaseDetail>(`/api/cases/${caseId}`),
   createCase,
+  createDicomCase,
   createInferenceJob,
   listInferenceJobs,
   getInferenceJob,
