@@ -19,6 +19,16 @@ export type CreateCaseInput = {
   flair: File;
 };
 
+export type CreateDicomCaseInput = {
+  name: string;
+  study: File;
+};
+
+export type SegmentationMetrics = {
+  lesion_voxels: number;
+  lesion_volume_ml: number;
+};
+
 export type SaveRevisionInput = {
   data: SerializedLabelmap;
   note?: string;
@@ -89,6 +99,13 @@ export async function createCase(input: CreateCaseInput): Promise<CaseDetail> {
   return request<CaseDetail>('/api/cases', { method: 'POST', body });
 }
 
+export async function createDicomCase(input: CreateDicomCaseInput): Promise<CaseDetail> {
+  const body = new FormData();
+  body.set('name', input.name);
+  body.set('study', input.study);
+  return request<CaseDetail>('/api/cases/dicom', { method: 'POST', body });
+}
+
 export function createInferenceJob(caseId: string, provider = 'demo'): Promise<InferenceJob> {
   return request<InferenceJob>(`/api/cases/${caseId}/inference-jobs`, {
     method: 'POST',
@@ -103,6 +120,10 @@ export function listInferenceJobs(caseId: string): Promise<InferenceJob[]> {
 
 export function getInferenceJob(jobId: string): Promise<InferenceJob> {
   return request<InferenceJob>(`/api/inference-jobs/${jobId}`);
+}
+
+export function getSegmentationMetrics(segmentationId: string): Promise<SegmentationMetrics> {
+  return request<SegmentationMetrics>(`/api/segmentations/${segmentationId}/metrics`);
 }
 
 export function retryInferenceJob(jobId: string): Promise<InferenceJob> {
@@ -164,9 +185,11 @@ export const api = {
   listCases: () => request<CaseSummary[]>('/api/cases'),
   getCase: (caseId: string) => request<CaseDetail>(`/api/cases/${caseId}`),
   createCase,
+  createDicomCase,
   createInferenceJob,
   listInferenceJobs,
   getInferenceJob,
+  getSegmentationMetrics,
   retryInferenceJob,
   listProviders,
   getSystemHealth,

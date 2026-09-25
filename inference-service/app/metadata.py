@@ -6,13 +6,14 @@ from __future__ import annotations
 from typing import Any, Dict
 
 SERVICE_NAME = "neuroannotate-deepisles"
-SERVICE_VERSION = "1.0.0"
-MODEL_NAME = "DeepISLES"
-UPSTREAM_COMMIT = "7658b608fc0d890cf14448ff3e58c47ad5c761e7"
+SERVICE_VERSION = "1.1.0"
+MODEL_NAME = "DeepISLES NVAUTO via BrainLesion stroke_segmentor"
+MODEL_VERSION = "stroke-segmentor-0.0.3"
+UPSTREAM_COMMIT = "BrainLesion/stroke_segmentor@0.0.3"
 
 
 def runtime_metadata() -> Dict[str, Any]:
-    """Return lightweight runtime facts without loading the DeepISLES model."""
+    """Return lightweight runtime facts without loading model checkpoints."""
     cuda_available = False
     device = "cpu"
     try:
@@ -26,7 +27,7 @@ def runtime_metadata() -> Dict[str, Any]:
     return {
         "cuda_available": cuda_available,
         "device": device,
-        "ready": True,
+        "ready": cuda_available,
     }
 
 
@@ -37,9 +38,9 @@ def service_info() -> Dict[str, Any]:
         {
             "service": SERVICE_NAME,
             "service_version": SERVICE_VERSION,
-            "engine": "DeepISLES",
+            "engine": "stroke_segmentor",
             "model_name": MODEL_NAME,
-            "model_version": UPSTREAM_COMMIT,
+            "model_version": MODEL_VERSION,
             "upstream_commit": UPSTREAM_COMMIT,
         }
     )

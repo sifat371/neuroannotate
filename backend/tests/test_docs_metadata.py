@@ -133,10 +133,11 @@ def test_research_scope_and_gpu_release_facts_are_documented(repo_root: Path) ->
     assert "not a medical device" in readme.lower()
     assert "docker compose --profile gpu up" in readme
     assert "DeepISLES" in readme
-    assert "7658b608fc0d890cf14448ff3e58c47ad5c761e7" in gpu
-    assert "14026715" in gpu
-    assert "stroke_ensemble_weights.7z" in gpu
-    assert "be5b6dfcd66b55c2e6dc6db9a5880f7f" in gpu
+    assert "stroke_segmentor==0.0.3" in gpu
+    assert "DeepISLES NVAUTO" in gpu
+    assert "16920681" in gpu
+    assert "PyTorch `2.7.1`" in gpu
+    assert "CUDA `12.8`" in gpu
     assert "make validate-gpu" in gpu
     assert "DWI-native" in provenance
     assert "SHA-256" in provenance

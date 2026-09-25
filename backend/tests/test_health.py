@@ -74,10 +74,10 @@ def test_health_reports_ready_deepisles_runtime_facts(client, monkeypatch):
             return Response(
                 {
                     "service": "neuroannotate-deepisles",
-                    "service_version": "1.0.0",
-                    "model_name": "DeepISLES",
-                    "model_version": "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
-                    "upstream_commit": "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
+                    "service_version": "1.1.0",
+                    "model_name": "DeepISLES NVAUTO via BrainLesion stroke_segmentor",
+                    "model_version": "stroke-segmentor-0.0.3",
+                    "upstream_commit": "BrainLesion/stroke_segmentor@0.0.3",
                     "cuda_available": True,
                     "device": "cuda:0",
                     "ready": True,
@@ -98,9 +98,9 @@ def test_health_reports_ready_deepisles_runtime_facts(client, monkeypatch):
         "deepisles": "ready",
         "ready": True,
         "service": "neuroannotate-deepisles",
-        "service_version": "1.0.0",
-        "model_name": "DeepISLES",
-        "model_version": "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
+        "service_version": "1.1.0",
+        "model_name": "DeepISLES NVAUTO via BrainLesion stroke_segmentor",
+        "model_version": "stroke-segmentor-0.0.3",
         "device": "cuda:0",
         "cuda_available": True,
     }

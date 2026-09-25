@@ -1,3 +1,4 @@
+import numpy as np
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -15,6 +16,7 @@ from app.services.inference.jobs import (
     retry_job,
 )
 from app.services.inference.registry import list_providers
+from app.services.nifti_codec import load_volume
 
 router = APIRouter(prefix="/api", tags=["inference-jobs"])
 
@@ -46,6 +48,34 @@ def retry(job_id: str, session: Session = Depends(get_session)) -> dict[str, obj
 @router.get("/inference/providers", response_model=list[ProviderInfoRead])
 def provider_status() -> list[dict[str, object]]:
     return [vars(provider.info()) for provider in list_providers()]
+
+
+@router.get("/segmentations/{segmentation_id}/metrics")
+def segmentation_metrics(
+    segmentation_id: str, session: Session = Depends(get_session)
+) -> dict[str, int | float]:
+    """Return deterministic lesion burden measurements for an AI candidate mask."""
+    artifact = session.get(SegmentationArtifact, segmentation_id)
+    if artifact is None:
+        raise ApiError(404, "segmentation_not_found", "Segmentation not found")
+    volume = load_volume(settings.data_dir / artifact.relative_path)
+    unit_scale = {"mm": 1.0, "meter": 1000.0, "micron": 0.001}.get(
+        volume.spatial_units
+    )
+    if unit_scale is None:
+        raise ApiError(
+            422,
+            "unsupported_spatial_units",
+            "Segmentation spatial units must be mm, meter, or micron to report volume",
+        )
+    lesion_voxels = int(np.count_nonzero(np.asarray(volume.data) > 0))
+    voxel_volume_mm3 = (
+        artifact.spacing_x * artifact.spacing_y * artifact.spacing_z * unit_scale**3
+    )
+    return {
+        "lesion_voxels": lesion_voxels,
+        "lesion_volume_ml": lesion_voxels * voxel_volume_mm3 / 1000.0,
+    }
 
 
 @router.get("/segmentations/{segmentation_id}/file.nii.gz")

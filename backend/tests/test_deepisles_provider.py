@@ -28,16 +28,14 @@ def _mask_archive(mask_bytes, metadata=None, names=None, compression=zipfile.ZIP
                         json.dumps(metadata or {
                         "provider": "deepisles",
                         "service": "neuroannotate-deepisles",
-                        "service_version": "1.0.0",
-                        "model_name": "DeepISLES",
-                        "model_version": "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
-                        "upstream_commit": "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
+                        "service_version": "1.1.0",
+                        "model_name": "DeepISLES NVAUTO via BrainLesion stroke_segmentor",
+                        "model_version": "stroke-segmentor-0.0.3",
+                        "upstream_commit": "BrainLesion/stroke_segmentor@0.0.3",
                         "configuration": {
-                            "skull_strip": False,
-                            "fast": False,
-                            "save_team_outputs": False,
-                            "results_mni": False,
-                            "parallelize": True,
+                            "implementation": "BrainLesion stroke_segmentor",
+                            "modalities": ["ADC", "DWI"],
+                            "flair_used": False,
                         },
                         "runtime": {
                             "duration_seconds": 0.1,
@@ -116,7 +114,7 @@ def test_provider_posts_exact_triad_and_writes_valid_result(tmp_path, monkeypatc
     assert output.exists()
     assert output.read_bytes() == source_mask.read_bytes()
     assert result.provider == "deepisles"
-    assert result.configuration["fast"] is False
+    assert result.configuration["modalities"] == ["ADC", "DWI"]
     assert result.runtime["device"] == "cuda:0"
 
 

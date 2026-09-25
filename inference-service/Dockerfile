@@ -1,27 +1,28 @@
-FROM nvidia/cuda:11.3.1-cudnn8-runtime-ubuntu20.04
+FROM python:3.11-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DEEPISLES_COMMIT=7658b608fc0d890cf14448ff3e58c47ad5c761e7
+ARG STROKE_SEGMENTOR_VERSION=0.0.3
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git p7zip-full python3.8 python3.8-distutils \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3.8
-RUN python3.8 -m pip install --no-cache-dir \
-    torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 \
-    --extra-index-url https://download.pytorch.org/whl/cu113
-RUN git clone https://github.com/ezequieldlrosa/DeepIsles.git /opt/deepisles \
-    && cd /opt/deepisles \
-    && git checkout "$DEEPISLES_COMMIT"
-RUN python3.8 -m pip install --no-cache-dir -r /opt/deepisles/requirements.txt
+    ca-certificates libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /service
+
+# PyTorch 2.7 CUDA 12.8 is the first stable Blackwell-capable wheel line.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128 \
+    && python -m pip install "stroke-segmentor==${STROKE_SEGMENTOR_VERSION}"
+
 COPY requirements-service.txt /service/
-RUN python3.8 -m pip install --no-cache-dir -r requirements-service.txt
+RUN python -m pip install -r /service/requirements-service.txt
+
 COPY app /service/app
-COPY scripts/fetch_weights.sh /service/scripts/fetch_weights.sh
-RUN chmod +x /service/scripts/fetch_weights.sh \
-    && ln -s /models/weights /opt/deepisles/weights
-ENV PYTHONPATH=/service:/opt/deepisles
+
+ENV PYTHONPATH=/service
 EXPOSE 8080
-CMD ["/bin/bash", "-c", "/service/scripts/fetch_weights.sh && exec python3.8 -m uvicorn app.main:app --host 0.0.0.0 --port 8080"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

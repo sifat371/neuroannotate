@@ -85,10 +85,11 @@ test('adds a created case without discarding dirty edits when selection is decli
   await screen.findByRole('button', { name: /case one/i });
   await act(async () => { useWorkspace.getState().setDirty(true); });
   await user.type(screen.getByLabelText('Case name'), 'Created case');
+  await user.click(screen.getByRole('button', { name: /NIfTI triad/i }));
   await user.upload(screen.getByLabelText(/DWI NIfTI/i), new File(['dwi'], 'dwi.nii.gz'));
   await user.upload(screen.getByLabelText(/ADC NIfTI/i), new File(['adc'], 'adc.nii.gz'));
   await user.upload(screen.getByLabelText(/FLAIR NIfTI/i), new File(['flair'], 'flair.nii.gz'));
-  await user.click(screen.getByRole('button', { name: 'Create Case' }));
+  await user.click(screen.getByRole('button', { name: 'Import Case' }));
   await screen.findByRole('button', { name: /created case/i });
   expect(window.confirm).toHaveBeenCalled();
   expect(screen.getByRole('button', { name: /case one/i })).toHaveAttribute('aria-pressed', 'true');

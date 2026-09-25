@@ -6,8 +6,8 @@ validator_path="${test_repo_dir}/scripts/validate_gpu.sh"
 unset repo_dir
 VALIDATE_GPU_SOURCE_ONLY=1 source "$validator_path"
 
-ready_info='{"upstream_commit":"7658b608fc0d890cf14448ff3e58c47ad5c761e7","cuda_available":true,"device":"cuda:0","ready":true}'
-invalid_info='{"upstream_commit":"wrong","cuda_available":false,"device":"","ready":false}'
+ready_info='{"upstream_commit":"BrainLesion/stroke_segmentor@0.0.3","model_version":"stroke-segmentor-0.0.3","cuda_available":true,"device":"cuda:0","ready":true}'
+invalid_info='{"upstream_commit":"wrong","model_version":"wrong","cuda_available":false,"device":"","ready":false}'
 printf '%s' "$ready_info" | deepisles_info_ready
 if printf '%s' "$invalid_info" | deepisles_info_ready; then
     echo "invalid DeepISLES info was accepted" >&2

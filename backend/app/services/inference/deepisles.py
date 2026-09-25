@@ -43,9 +43,9 @@ class DeepISLESProvider:
         """Return configured identity without issuing a network request."""
         return ProviderInfo(
             self.name,
-            "DeepISLES",
-            "7658b608fc0d890cf14448ff3e58c47ad5c761e7",
-            "1.0.0",
+            "DeepISLES NVAUTO via BrainLesion stroke_segmentor",
+            "stroke-segmentor-0.0.3",
+            "1.1.0",
             self.service_url is not None,
         )
 
@@ -215,20 +215,23 @@ class DeepISLESProvider:
             raise ValueError("metadata identity is invalid")
         if metadata["provider"] != "deepisles":
             raise ValueError("metadata provider is invalid")
+        if (
+            metadata["service_version"] != "1.1.0"
+            or metadata["model_version"] != "stroke-segmentor-0.0.3"
+            or metadata["upstream_commit"] != "BrainLesion/stroke_segmentor@0.0.3"
+        ):
+            raise ValueError("metadata model identity is invalid")
         if not isinstance(metadata.get("configuration"), dict) or not isinstance(
             metadata.get("runtime"), dict
         ):
             raise ValueError("metadata configuration or runtime is invalid")
         configuration = metadata["configuration"]
-        required_flags = (
-            "skull_strip",
-            "fast",
-            "save_team_outputs",
-            "results_mni",
-            "parallelize",
-        )
-        if any(not isinstance(configuration.get(flag), bool) for flag in required_flags):
-            raise ValueError("metadata configuration flags are invalid")
+        if (
+            configuration.get("implementation") != "BrainLesion stroke_segmentor"
+            or configuration.get("modalities") != ["ADC", "DWI"]
+            or configuration.get("flair_used") is not False
+        ):
+            raise ValueError("metadata configuration is invalid")
         duration = metadata["runtime"].get("duration_seconds")
         if (
             not isinstance(duration, (int, float))
