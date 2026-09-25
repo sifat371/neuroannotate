@@ -15,7 +15,7 @@ def run_deepisles(dwi: Path, adc: Path, flair: Path, output_dir: Path) -> Path:
 
     # Keep downloaded checkpoints outside the container layer so a hospital
     # installation can initialize once and then run without re-downloading them.
-    import stroke_segmentor.zenodo as zenodo
+    from stroke_segmentor import zenodo
 
     zenodo.WEIGHTS_FOLDER = Path("/models/weights")
 
