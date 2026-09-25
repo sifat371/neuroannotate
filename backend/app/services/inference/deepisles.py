@@ -215,6 +215,12 @@ class DeepISLESProvider:
             raise ValueError("metadata identity is invalid")
         if metadata["provider"] != "deepisles":
             raise ValueError("metadata provider is invalid")
+        if (
+            metadata["service_version"] != "1.1.0"
+            or metadata["model_version"] != "stroke-segmentor-0.0.3"
+            or metadata["upstream_commit"] != "BrainLesion/stroke_segmentor@0.0.3"
+        ):
+            raise ValueError("metadata model identity is invalid")
         if not isinstance(metadata.get("configuration"), dict) or not isinstance(
             metadata.get("runtime"), dict
         ):
